@@ -1,8 +1,5 @@
 """
-Community Matchmaking ("Call to Arms") for TOW & Horus Heresy
-- Streamlit app inspired by the Old World ELO Tracker UI & structure.
-- Separate weekly matchmaking per system (no cross-system pairings).
-- Public "Call to Arms" signup form + Admin tools to generate/view/edit pairings.
+Call to Arms
 """
 
 from __future__ import annotations
@@ -327,12 +324,6 @@ class MatcherSignup:
     preference: Tuple[int,int,int]  # heuristic tuple for matching
 
 def build_match_preference(su: Signup) -> Tuple[int,int,int]:
-    """
-    Preference tuple used to roughly align similar players:
-    - First: vibe weight (0 casual, 1 competitive) — keep close
-    - Second: experience bucket (0 new, 1 some, 2 vet)
-    - Third: points bucket (rounded to nearest 250)
-    """
     vibe_w = 0 if (su.vibe or "").lower().startswith("casual") else 1
     exp_map = {"new":0, "some":1, "veteran":2, "experienced":2}
     e_key = (su.experience or "").strip().lower()
@@ -346,14 +337,6 @@ def build_match_preference(su: Signup) -> Tuple[int,int,int]:
     return (vibe_w, exp_w, pts_bucket)
 
 def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed: bool = True, allow_tnt: bool = True) -> List[Pairing]:
-    """
-    Greedy non-cross-system matcher:
-    - Only considers signups for the given week & system.
-    - Avoids rematches if possible using past pairings.
-    - Preference: similar vibe/experience/points.
-    - If odd count: prefer pairing one T&T-enabled trio (marked by creating a pending BYE record including third later).
-      For simplicity we create one BYE (unpaired) record for the odd person; admins can convert to T&T by grouping three.
-    """
     with Session(engine) as s:
         # Load candidates
         rows = s.exec(select(Signup).where(
@@ -377,7 +360,6 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
         if not candidates:
             return []
 
-        # Sort by preference buckets to help similar match-ups
         # --- Intro priority pass: match TOW "Intro" seekers with leaders first ---
         intro_pairs: List[Pairing] = []
         used_intro: Set[str] = set()
@@ -423,8 +405,6 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
             a,b = sorted([x,y])
             return (a,b) in seen_pairs
 
-        # Try to match greedily within close preference window
-        # Helper distance components (low-priority tiebreakers)
         def _eta_minutes(su):
             try:
                 if not su or not su.eta:

@@ -575,7 +575,7 @@ with st.sidebar:
         st.markdown(f"<div style='display:flex;justify-content:center;align-items:center;margin-top:10px'>{disc_img}</div>", unsafe_allow_html=True)
 
 tabs_public = ["Call to Arms", "Pairings"]
-tabs_admin  = ["Signups", "Generate Pairings", "Weekly Pairings"]
+tabs_admin  = ["Signups", "Generate Pairings", "Weekly Pairings", "View History"]
 order = tabs_public + (tabs_admin if st.session_state.get("is_admin") else [])
 T = st.tabs(order)
 idx = {name:i for i,name in enumerate(order)}
@@ -974,3 +974,78 @@ if "Weekly Pairings" in idx:
                     st.success(f"Deleted {len(ids)} pairing(s).")
                 except Exception as e:
                     st.error(f"Error: {e}")
+
+
+# --------------- Admin: View History ---------------
+if "View History" in idx:
+    with T[idx["View History"]]:
+        st.subheader("View History")
+        sys_pick = st.selectbox("System", SYSTEMS, index=0, key="adm_hist_sys")
+        week_filter = st.text_input("Week contains (optional)", value="", key="adm_hist_week_filter")
+        limit = st.number_input("Show last N pairings", min_value=10, max_value=1000, value=200, step=10, help="Caps how many rows to display")
+
+        from sqlalchemy import text as _sqla_text  # not strictly needed; present for future filtering
+        with Session(engine) as s:
+            q = select(Pairing).where(Pairing.system == sys_pick)
+            if week_filter.strip():
+                # ilike for case-insensitive substring match on week id
+                q = q.where(Pairing.week.ilike(f"%{week_filter.strip()}%"))
+            prs = s.exec(q.order_by(Pairing.week.desc(), Pairing.id.desc())).all()
+
+        if not prs:
+            st.info("No historical pairings match your filters.")
+        else:
+            with Session(engine) as s:
+                rows = []
+                def _parse_eta_hist(sval):
+                    if not sval:
+                        return None
+                    try:
+                        from datetime import datetime
+                        return datetime.strptime(str(sval).strip(), "%H:%M").time()
+                    except Exception:
+                        return None
+
+                for p in prs[:limit]:
+                    a = s.get(Signup, p.a_signup_id)
+                    b = s.get(Signup, p.b_signup_id) if p.b_signup_id else None
+
+                    ta = _parse_eta_hist(a.eta if a else None)
+                    tb = _parse_eta_hist(b.eta if b else None)
+                    if ta and tb:
+                        eta_show = max(ta, tb).strftime("%H:%M")
+                    elif ta:
+                        eta_show = ta.strftime("%H:%M")
+                    elif tb:
+                        eta_show = tb.strftime("%H:%M")
+                    else:
+                        eta_show = None
+
+                    pts_vals = []
+                    if a and isinstance(a.points, int):
+                        pts_vals.append(a.points)
+                    if b and isinstance(b.points, int):
+                        pts_vals.append(b.points)
+                    pts_show = min(pts_vals) if pts_vals else None
+
+                    rows.append({
+                        "ID": p.id,
+                        "Week": p.week,
+                        "System": p.system,
+                        "A": a.player_name if a else f"A#{p.a_signup_id}",
+                        "A Faction": (p.a_faction or (a.faction if a else None)),
+                        "A Type": (a.vibe if a else None),
+                        "B": (b.player_name if b else ("BYE" if p.b_signup_id is None else f"B#{p.b_signup_id}")),
+                        "B Faction": ((p.b_faction or (b.faction if b else None)) if b else None),
+                        "B Type": ((b.vibe if b else None) if b else None),
+                        "Status": p.status,
+                        "Table": p.table,
+                        "ETA": eta_show,
+                        "Points": pts_show,
+                    })
+
+            import pandas as pd
+            df = pd.DataFrame(rows)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+            csv = df.to_csv(index=False).encode("utf-8")
+            st.download_button("Download history as CSV", data=csv, file_name="pairings_history.csv", mime="text/csv", use_container_width=True)

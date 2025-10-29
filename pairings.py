@@ -42,7 +42,7 @@ PLACEHOLDER_FACTIONS: List[str] = [
     'Wood Elf Realms', 'High Elf Realms', 'Orc & Goblin Tribes',
     'Warriors of Chaos', 'Beastmen Brayheards', 'Tomb Kings of Khemri',
     'Skaven', 'Ogre Kingdoms', 'Lizardmen', 'Chaos Dwarfs', 'Dark Elves',
-    'Daemons of Chaos', 'Vampire Counts'
+    'Daemons of Chaos', 'Vampire Counts', 'Grand Cathay'
 ]
 PLACEHOLDER_FACTIONS_WITH_BLANK: List[str] = ["— None —", *PLACEHOLDER_FACTIONS]
 # Horus Heresy factions (Legions & forces) for signup

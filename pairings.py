@@ -441,6 +441,22 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
                 return 1  # avoid mirror if possible
             return 0
 
+        def _vibe_distance_override(a_row, b_row, base_dv):
+            """Make 'Either' match anything except Intro. Intro remains a separate pre-pass."""
+            av = ((getattr(a_row, "vibe", None) or "").strip().lower())
+            bv = ((getattr(b_row, "vibe", None) or "").strip().lower())
+
+            # Intro is always authoritative — do not override
+            if av == "intro" or bv == "intro":
+                return base_dv
+
+            # If either selected 'Either' → no vibe penalty
+            if av == "either" or bv == "either":
+                return 0
+
+            # Otherwise fallback to normal check
+            return 0 if av == bv else 1
+
         for i, ms in enumerate(candidates):
             if ms.key in used:
                 continue
@@ -455,7 +471,8 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
                 if has_played(ms.key, other.key):
                     continue
                 # distance over preference tuple
-                dv = abs(ms.preference[0] - other.preference[0])
+                dv_base = abs(ms.preference[0] - other.preference[0])
+                dv = _vibe_distance_override(ms.row, other.row, dv_base)
                 de = abs(ms.preference[1] - other.preference[1])
                 dp = abs(ms.preference[2] - other.preference[2])
                 dist = (dv, de, dp)
@@ -471,8 +488,10 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
                     other = candidates[j]
                     if other.key in used:
                         continue
-                    dv = abs(ms.preference[0] - other.preference[0])
+                    dv_base = abs(ms.preference[0] - other.preference[0])
+                    dv = _vibe_distance_override(ms.row, other.row, dv_base)
                     de = abs(ms.preference[1] - other.preference[1])
+                    dp = abs(ms.preference[2] - other.preference[2])
                     
                     eta_b = _eta_bucket_diff(ms.row, other.row)
                     scen_d = _scenario_diff_tow(ms.row, other.row, system)
@@ -597,9 +616,9 @@ with T[idx["Call to Arms"]]:
         exp = st.selectbox("Experience", ["New", "Some", "Veteran"])
         # Type of game
         if is_hh:
-            vibe = st.selectbox("Type of game", ["Standard", "Intro"])
+            vibe = st.selectbox("Type of game", ["Standard", "Intro", "Either"])
         else:
-            vibe = st.selectbox("Type of game", ["Casual", "Competitive", "Intro"])
+            vibe = st.selectbox("Type of game", ["Casual", "Competitive", "Intro", "Either"])
         standby = st.checkbox("I can be on standby", value=False)
         # Triumph & Treachery (TOW only)
         if not is_hh:
@@ -658,6 +677,27 @@ with T[idx["Pairings"]]:
             st.info("No pairings yet.")
         else:
             with Session(engine) as s:
+
+                def _public_vibe_display(a_v, b_v):
+                    av = (a_v or "").strip()
+                    bv = (b_v or "").strip()
+                    av_l = av.lower()
+                    bv_l = bv.lower()
+
+                    if av_l == "intro" or bv_l == "intro":
+                        return "Intro"
+
+                    if av_l == "either" and bv:
+                        return bv
+
+                    if bv_l == "either" and av:
+                        return av
+
+                    if av_l == "either" and bv_l == "either":
+                        return "Either"
+
+                    return av or bv or ""
+
                 rows = []
                 for p in prs:
                     a = s.get(Signup, p.a_signup_id)
@@ -696,7 +736,7 @@ with T[idx["Pairings"]]:
                         "Faction A": p.a_faction or (a.faction if a else None),
                         "B": (b.player_name if b else "— BYE / standby —"),
                         "Faction B": (p.b_faction or (b.faction if b else None) if b else None),
-                        "Type": (a.vibe or ""),
+                        "Type": _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None)),
                         "ETA": eta_show,
                         "Points": pts_show
                     })

@@ -279,9 +279,15 @@ def uk_date_str(d: date) -> str:
 
 def week_id_wed(d: date) -> str:
     # Wednesday identifier (DD/MM/YYYY)
-    offset = 2 - d.weekday()
+    # From Saturday onwards, treat as next week
+    if d.weekday() >= 5:  # 5 = Saturday, 6 = Sunday
+        # Jump to next Monday
+        d = d + timedelta(days=7 - d.weekday())
+
+    offset = 2 - d.weekday()  # 2 = Wednesday
     wednesday = d + timedelta(days=offset)
     return uk_date_str(wednesday)
+
 
 # ---- Cache helpers ----
 @st.cache_data(ttl=180)

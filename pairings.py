@@ -592,26 +592,27 @@ with T[idx["Call to Arms"]]:
         system = st.selectbox("System", SYSTEMS, index=0)
 
     st.divider()
+    # --- Player pick or create (first+last only) ---
+    with Session(engine) as _s_pl:
+        _players_all = _s_pl.exec(select(Player).order_by(Player.id)).all()
+
+    def _fmt_player_label(p):
+        nm = (getattr(p, "name", "") or "").strip()
+        return f"#{p.id} — {nm or 'Unnamed'}"
+
+    _player_labels = [_fmt_player_label(p) for p in _players_all]
+    _label_to_id = { _fmt_player_label(p): p.id for p in _players_all }
+
+    st.markdown("### Who are you?")
+    _is_new = st.checkbox("I'm new (create a player profile)")
+
+    selected_player_label = None
+    first = ""
+    last = ""
+
     with st.form("signup_form", clear_on_submit=True):
         is_hh = (system == "Horus Heresy")
         name_ph = "e.g., Alpharius" if is_hh else "e.g., Heinrich Kemmler"
-        # --- Player pick or create (first+last only) ---
-        with Session(engine) as _s_pl:
-            _players_all = _s_pl.exec(select(Player).order_by(Player.id)).all()
-
-        def _fmt_player_label(p):
-            nm = (getattr(p, "name", "") or "").strip()
-            return f"#{p.id} — {nm or 'Unnamed'}"
-
-        _player_labels = [_fmt_player_label(p) for p in _players_all]
-        _label_to_id = { _fmt_player_label(p): p.id for p in _players_all }
-
-        st.markdown("### Who are you?")
-        _is_new = st.checkbox("I'm new (create a player profile)")
-
-        selected_player_label = None
-        first = ""
-        last = ""
 
         if not _is_new:
             selected_player_label = st.selectbox(

@@ -778,6 +778,28 @@ with T[idx["Call to Arms"]]:
             s.add(su); s.commit()
         st.success("Thanks! You're on the list.")
 
+    st.markdown("### Need to drop out?")
+    if not _is_new and selected_player_label and selected_player_label in _label_to_id:
+        if st.button("Drop my signup for this week"):
+            with Session(engine) as s:
+                pid = _label_to_id[selected_player_label]
+                su_rows = s.exec(
+                    select(Signup).where(
+                        (Signup.week == week_val.strip())
+                        & (Signup.system == system)
+                        & (Signup.player_id == pid)
+                    )
+                ).all()
+                if not su_rows:
+                    st.info("No signup found for you this week to drop.")
+                else:
+                    for su in su_rows:
+                        s.delete(su)
+                    s.commit()
+                    st.success("You've been removed from this week's signup.")
+    else:
+        st.caption("Select your player above to drop an existing signup.")
+
 
 # --------------- Public: Pairings view ---------------
 with T[idx["Pairings"]]:

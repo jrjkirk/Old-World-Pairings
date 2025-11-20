@@ -595,7 +595,37 @@ with T[idx["Call to Arms"]]:
     with st.form("signup_form", clear_on_submit=True):
         is_hh = (system == "Horus Heresy")
         name_ph = "e.g., Alpharius" if is_hh else "e.g., Heinrich Kemmler"
-        name = st.text_input("Your name", placeholder=name_ph).strip()
+        # --- Player pick or create (first+last only) ---
+        with Session(engine) as _s_pl:
+            _players_all = _s_pl.exec(select(Player).order_by(Player.id)).all()
+
+        def _fmt_player_label(p):
+            nm = (getattr(p, "name", "") or "").strip()
+            return f"#{p.id} — {nm or 'Unnamed'}"
+
+        _player_labels = [_fmt_player_label(p) for p in _players_all]
+        _label_to_id = { _fmt_player_label(p): p.id for p in _players_all }
+
+        st.markdown("### Who are you?")
+        _is_new = st.checkbox("I'm new (create a player profile)")
+
+        selected_player_label = None
+        first = ""
+        last = ""
+
+        if not _is_new:
+            selected_player_label = st.selectbox(
+                "Select your player",
+                options=(['— Select —'] + _player_labels),
+                index=0,
+                placeholder="Type to search…"
+            )
+        else:
+            _cfa, _cfb = st.columns(2)
+            with _cfa:
+                first = st.text_input("First name *")
+            with _cfb:
+                last = st.text_input("Last name *")
         # Factions
         if is_hh:
             faction_choice = st.selectbox("Your faction", HH_FACTIONS_WITH_BLANK, index=0)
@@ -635,27 +665,36 @@ with T[idx["Call to Arms"]]:
         submitted = st.form_submit_button("Submit")
 
     if submitted:
-        if not name:
-            st.error("Please enter your name.")
-        else:
-            with Session(engine) as s:
-                # Try to link to an existing Player by name (exact, case-insensitive)
-                nm = _normalize_name(name)
-                pl = s.exec(select(Player).where(Player.name.ilike(nm))).first()
+        with Session(engine) as s:
+            pl = None
+            if not _is_new:
+                if selected_player_label and selected_player_label in _label_to_id:
+                    pl = s.get(Player, _label_to_id[selected_player_label])
+                else:
+                    st.error("Please select your player from the list, or tick 'I'm new' and enter your name.")
+                    st.stop()
+            else:
+                if not first.strip() or not last.strip():
+                    st.error("Please enter both first and last name.")
+                    st.stop()
+                full_name = f"{first.strip()} {last.strip()}"
+                pl = s.exec(select(Player).where(Player.name.ilike(full_name))).first()
                 if not pl:
-                    pl = Player(name=nm, default_faction=None, active=True)
+                    pl = Player(name=full_name, default_faction=None, active=True)
                     s.add(pl); s.commit(); s.refresh(pl)
-                faction = None if faction_choice == "— None —" else faction_choice
-                su = Signup(
-                    week=week_val.strip(), system=system,
-                    player_id=pl.id, player_name=pl.name,
-                    faction=faction, points=int(pts), eta=eta.strip() or None,
-                    experience=exp, vibe=vibe,
-                    standby_ok=standby, tnt_ok=tnt,
-                    scenario=scenario, can_demo=can_demo
-                )
-                s.add(su); s.commit()
-            st.success("Thanks! You're on the list.")
+
+            faction = None if faction_choice == "— None —" else faction_choice
+
+            su = Signup(
+                week=week_val.strip(), system=system,
+                player_id=pl.id, player_name=pl.name,
+                faction=faction, points=int(pts), eta=eta.strip() or None,
+                experience=exp, vibe=vibe,
+                standby_ok=standby, tnt_ok=tnt,
+                scenario=scenario, can_demo=can_demo
+            )
+            s.add(su); s.commit()
+        st.success("Thanks! You're on the list.")
 
 
 # --------------- Public: Pairings view ---------------

@@ -651,14 +651,59 @@ with T[idx["Call to Arms"]]:
                 first = st.text_input("First name *")
             with _cfb:
                 last = st.text_input("Last name *")
+
+        # Look up this player's most recent signup to prefill fields
+        last_su = None
+        if not _is_new and selected_player_label and selected_player_label in _label_to_id:
+            with Session(engine) as _s_pref:
+                _pid = _label_to_id[selected_player_label]
+                last_su = _s_pref.exec(
+                    select(Signup)
+                    .where(Signup.player_id == _pid)
+                    .order_by(Signup.id.desc())
+                ).first()
+
+        # Defaults (fallback to current behaviour if no previous signup)
+        default_faction = None
+        default_pts = 3000 if is_hh else 2000
+        default_eta = "18:30"
+        default_exp = "New"
+        default_vibe = "Standard" if is_hh else "Casual"
+        default_standby = False
+        default_tnt = False
+        default_scenario = "Open Battle" if not is_hh else None
+        default_can_demo = False
+
+        if last_su:
+            if last_su.faction:
+                default_faction = last_su.faction
+            if last_su.points is not None:
+                default_pts = last_su.points
+            if last_su.eta:
+                default_eta = last_su.eta
+            if last_su.experience:
+                default_exp = last_su.experience
+            if last_su.vibe:
+                default_vibe = last_su.vibe
+            default_standby = bool(last_su.standby_ok)
+            default_tnt = bool(last_su.tnt_ok)
+            if last_su.scenario and not is_hh:
+                default_scenario = last_su.scenario
+            default_can_demo = bool(last_su.can_demo)
+
         # Factions
         if is_hh:
-            faction_choice = st.selectbox("Your faction", HH_FACTIONS_WITH_BLANK, index=0)
+            faction_options = HH_FACTIONS_WITH_BLANK
         else:
-            faction_choice = st.selectbox("Your faction", PLACEHOLDER_FACTIONS_WITH_BLANK, index=0)
+            faction_options = PLACEHOLDER_FACTIONS_WITH_BLANK
+
+        faction_index = 0
+        if default_faction and default_faction in faction_options:
+            faction_index = faction_options.index(default_faction)
+
+        faction_choice = st.selectbox("Your faction", faction_options, index=faction_index)
         # Points
-        default_pts = 3000 if is_hh else 2000
-        pts = st.number_input("Army points", min_value=0, max_value=10000, value=default_pts, step=50)
+        pts = st.number_input("Army points", min_value=0, max_value=10000, value=int(default_pts), step=50)
         # ETA dropdown 17:00-19:30
         eta_options = []
         for h in [17,18,19]:
@@ -666,26 +711,34 @@ with T[idx["Call to Arms"]]:
                 if h == 19 and m > 30:
                     continue
                 eta_options.append(f"{h:02d}:{m:02d}")
-        eta_default_idx = eta_options.index("18:30") if "18:30" in eta_options else 0
+        eta_label = default_eta if default_eta in eta_options else "18:30"
+        eta_default_idx = eta_options.index(eta_label) if eta_label in eta_options else 0
         eta = st.selectbox("Estimated time of arrival", eta_options, index=eta_default_idx)
-        exp = st.selectbox("Experience", ["New", "Some", "Veteran"])
+        exp_options = ["New", "Some", "Veteran"]
+        exp_index = exp_options.index(default_exp) if default_exp in exp_options else 0
+        exp = st.selectbox("Experience", exp_options, index=exp_index)
         # Type of game
         if is_hh:
-            vibe = st.selectbox("Type of game", ["Standard", "Intro", "Either"])
+            vibe_options = ["Standard", "Intro", "Either"]
         else:
-            vibe = st.selectbox("Type of game", ["Casual", "Competitive", "Intro", "Either"])
-        standby = st.checkbox("I can be on standby", value=False)
+            vibe_options = ["Casual", "Competitive", "Intro", "Either"]
+
+        vibe_index = vibe_options.index(default_vibe) if default_vibe in vibe_options else 0
+        vibe = st.selectbox("Type of game", vibe_options, index=vibe_index)
+        standby = st.checkbox("I can be on standby", value=default_standby)
         # Triumph & Treachery (TOW only)
         if not is_hh:
-            tnt = st.checkbox("I can play Triumph & Treachery (3-way)", value=False)
+            tnt = st.checkbox("I can play Triumph & Treachery (3-way)", value=default_tnt)
         else:
             tnt = False
         # Scenario (TOW only)
         if not is_hh:
-            scenario = st.selectbox("Scenario preference", ["Open Battle", "Weekly Scenario"])
+            scen_options = ["Open Battle", "Weekly Scenario"]
+            scen_index = scen_options.index(default_scenario) if default_scenario in scen_options else 0
+            scenario = st.selectbox("Scenario preference", scen_options, index=scen_index)
         else:
             scenario = None
-        can_demo = st.checkbox("I can lead an intro game", value=False)
+        can_demo = st.checkbox("I can lead an intro game", value=default_can_demo)
 
         submitted = st.form_submit_button("Submit")
 

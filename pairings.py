@@ -288,6 +288,10 @@ def week_id_wed(d: date) -> str:
     wednesday = d + timedelta(days=offset)
     return uk_date_str(wednesday)
 
+def parse_week_id(week_str: str) -> date:
+    """Parse a week identifier like 'DD/MM/YYYY' into a date."""
+    return datetime.strptime(week_str.strip(), "%d/%m/%Y").date()
+
 
 # ---- Cache helpers ----
 @st.cache_data(ttl=180)
@@ -301,14 +305,25 @@ def _normalize_name(n: str) -> str:
     return " ".join(n.strip().split())
 
 @st.cache_data(ttl=180)
-def previous_pairs(system: str) -> Set[Tuple[str, str]]:
-    """Return set of unordered player name pairs who have played each other before in this system."""
+def previous_pairs_recent(system: str, current_week: str, max_weeks: int = 2) -> Set[Tuple[str, str]]:
+    """Return unordered player pairs who have played each other within the last `max_weeks` weeks for this system."""
+    try:
+        current_dt = parse_week_id(current_week)
+    except Exception:
+        return set()
+
     with Session(engine) as s:
-        out: Set[Tuple[str,str]] = set()
-        # Join pairings -> signups to get names at time of pairing
+        out: Set[Tuple[str, str]] = set()
         prs = s.exec(select(Pairing).where(Pairing.system == system)).all()
         for pr in prs:
             if pr.b_signup_id is None:
+                continue
+            try:
+                pr_week_dt = parse_week_id(pr.week)
+            except Exception:
+                continue
+            weeks_apart = abs((current_dt - pr_week_dt).days) // 7
+            if weeks_apart > max_weeks:
                 continue
             a = s.get(Signup, pr.a_signup_id)
             b = s.get(Signup, pr.b_signup_id)
@@ -403,7 +418,7 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
 
         candidates.sort(key=lambda m: (m.preference, m.key))
 
-        seen_pairs = previous_pairs(system)
+        seen_pairs = previous_pairs_recent(system, week, max_weeks=2)
         used: Set[str] = set()
         out: List[Pairing] = intro_pairs if "intro_pairs" in locals() else []
 
@@ -493,6 +508,9 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
                 for j in range(i+1, len(candidates)):
                     other = candidates[j]
                     if other.key in used:
+                        continue
+                    # still avoid very recent rematches (within the configured recent window)
+                    if has_played(ms.key, other.key):
                         continue
                     dv_base = abs(ms.preference[0] - other.preference[0])
                     dv = _vibe_distance_override(ms.row, other.row, dv_base)
@@ -1050,7 +1068,6 @@ if "View History" in idx:
         week_filter = st.text_input("Week contains (optional)", value="", key="adm_hist_week_filter")
         limit = st.number_input("Show last N pairings", min_value=10, max_value=1000, value=200, step=10, help="Caps how many rows to display")
 
-        from sqlalchemy import text as _sqla_text  # not strictly needed; present for future filtering
         with Session(engine) as s:
             q = select(Pairing).where(Pairing.system == sys_pick)
             if week_filter.strip():

@@ -657,7 +657,9 @@ with T[idx["Call to Arms"]]:
             _pid = _label_to_id[selected_player_label]
             last_su = _s_pref.exec(
                 select(Signup)
-                .where(Signup.player_id == _pid)
+                .where(
+                    (Signup.player_id == _pid) & (Signup.system == system)
+                )
                 .order_by(Signup.id.desc())
             ).first()
 

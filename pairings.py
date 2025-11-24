@@ -723,7 +723,7 @@ with T[idx["Call to Arms"]]:
         exp = st.selectbox("Experience", exp_options, index=exp_index, key=f"signup_exp_{_key_suffix}")
         # Type of game
         if is_hh:
-            vibe_options = ["Standard", "Intro", "Either"]
+            vibe_options = ["Standard", "Intro"]
         else:
             vibe_options = ["Casual", "Competitive", "Intro", "Either"]
 

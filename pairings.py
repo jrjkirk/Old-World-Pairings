@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, date, timedelta, time
 from typing import Optional, Dict, List, Tuple, Set, Literal, Iterable
 import os, base64, math
+import requests
 
 import streamlit as st
 from sqlmodel import SQLModel, Field, create_engine, Session, select
@@ -34,6 +35,7 @@ ELEMENT_URL = st.secrets.get("ELEMENT_GAMES_URL", os.getenv("ELEMENT_GAMES_URL",
 ELEMENT_LOGO_URL = st.secrets.get("ELEMENT_LOGO_URL", os.getenv("ELEMENT_LOGO_URL", ""))
 DISCORD_URL = st.secrets.get("DISCORD_URL", os.getenv("DISCORD_URL", ""))
 DISCORD_LOGO_URL = st.secrets.get("DISCORD_LOGO_URL", os.getenv("DISCORD_LOGO_URL", ""))
+DISCORD_SIGNUP_WEBHOOK_URL = st.secrets.get("DISCORD_SIGNUP_WEBHOOK_URL", os.getenv("DISCORD_SIGNUP_WEBHOOK_URL", ""))
 SYSTEMS: List[str] = ["TOW", "Horus Heresy"]
 
 # Shared factions list can be tailored per-system later; re-using OW list as a baseline.
@@ -272,6 +274,69 @@ def render_header():
 </div>
 <div class='owl-spacer'></div>
 """, unsafe_allow_html=True)
+
+
+def _get_tow_signup_count(week_str: str) -> int:
+    """Return number of TOW signups for the given week id."""
+    try:
+        wk = (week_str or "").strip()
+    except Exception:
+        wk = week_str
+    if not wk:
+        return 0
+    with Session(engine) as s:
+        rows = s.exec(
+            select(Signup).where(
+                (Signup.week == wk) & (Signup.system == "TOW")
+            )
+        ).all()
+        return len(rows)
+
+
+def post_discord_signup(player_name: str, faction: Optional[str], vibe: Optional[str], system: str, week_str: str):
+    """Post a minimal signup notification to Discord via webhook (TOW only)."""
+    if system != "TOW":
+        return
+    if not DISCORD_SIGNUP_WEBHOOK_URL:
+        return
+
+    faction_label = faction or "Unknown faction"
+    vibe_label = vibe or "Unknown vibe"
+    count = _get_tow_signup_count(week_str)
+
+    content = f"📝 **{player_name}** signed up — ⚔️ {faction_label} • 🎭 {vibe_label}\n📊 TOW signups this week: {count}"
+
+    try:
+        requests.post(
+            DISCORD_SIGNUP_WEBHOOK_URL,
+            json={"content": content},
+            timeout=5,
+        )
+    except Exception:
+        # Do not break the app if Discord is unreachable
+        pass
+
+
+def post_discord_drop(player_name: str, faction: Optional[str], vibe: Optional[str], week_str: str):
+    """Post a minimal drop notification to Discord via webhook (TOW only)."""
+    if not DISCORD_SIGNUP_WEBHOOK_URL:
+        return
+    # We don't know system here for sure, but drops are only enabled for TOW signups usage-wise.
+    count = _get_tow_signup_count(week_str)
+
+    faction_label = faction or "Unknown faction"
+    vibe_label = vibe or "Unknown vibe"
+
+    content = f"❌ **{player_name}** dropped — ⚔️ {faction_label} • 🎭 {vibe_label}\n📊 TOW signups this week: {count}"
+    try:
+        requests.post(
+            DISCORD_SIGNUP_WEBHOOK_URL,
+            json={"content": content},
+            timeout=5,
+        )
+    except Exception:
+        pass
+
 
 
 def uk_date_str(d: date) -> str:
@@ -778,6 +843,10 @@ with T[idx["Call to Arms"]]:
                 scenario=scenario, can_demo=can_demo
             )
             s.add(su); s.commit()
+
+        # Discord notification for TOW signups
+        post_discord_signup(pl.name, faction, vibe, week_val.strip())
+
         st.success("Thanks! You're on the list.")
 
     st.markdown("### Need to drop out?")
@@ -795,10 +864,15 @@ with T[idx["Call to Arms"]]:
                 if not su_rows:
                     st.info("No signup found for you this week to drop.")
                 else:
+                    # Use the first matching signup row to get player name/faction/vibe before deleting
+                    ref = su_rows[0]
                     for su in su_rows:
                         s.delete(su)
                     s.commit()
                     st.success("You've been removed from this week's signup.")
+                    # Discord notification for TOW drops
+                    if system == "TOW":
+                        post_discord_drop(ref.player_name, ref.faction, ref.vibe, week_val.strip())
     else:
         st.caption("Select your player above to drop an existing signup.")
 

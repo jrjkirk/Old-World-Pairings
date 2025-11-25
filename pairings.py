@@ -844,8 +844,10 @@ with T[idx["Call to Arms"]]:
             )
             s.add(su); s.commit()
 
+            player_name_for_webhook = pl.name
+
         # Discord notification for TOW signups
-        post_discord_signup(pl.name, faction, vibe, week_val.strip())
+        post_discord_signup(player_name_for_webhook, faction, vibe, week_val.strip())
 
         st.success("Thanks! You're on the list.")
 

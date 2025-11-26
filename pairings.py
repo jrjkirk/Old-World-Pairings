@@ -1148,58 +1148,165 @@ if "Weekly Pairings" in idx:
         with col_p3:
             st.caption(f"Public status: **{'Published' if (gate and gate.published) else 'Not Published'}**")
 
+        
         with Session(engine) as s:
-            prs = s.exec(select(Pairing).where((Pairing.week == week_lookup) & (Pairing.system == sys_pick)).order_by(Pairing.id)).all()
+            # Load pairings for this week+system
+            prs = s.exec(
+                select(Pairing)
+                .where((Pairing.week == week_lookup) & (Pairing.system == sys_pick))
+                .order_by(Pairing.id)
+            ).all()
+            # Load all signups for dropdown options
+            sus = s.exec(
+                select(Signup).where(
+                    (Signup.week == week_lookup) & (Signup.system == sys_pick)
+                )
+            ).all()
+
         if not prs:
             st.info("No pairings.")
         else:
-            with Session(engine) as s:
-                rows = []
-                for p in prs:
-                    a = s.get(Signup, p.a_signup_id)
-                    b = s.get(Signup, p.b_signup_id) if p.b_signup_id else None
+            # Helper to label signups in dropdowns
+            def _label_signup(su: Signup | None) -> str:
+                if not su:
+                    return ""
+                name = (su.player_name or "").strip() or "Unnamed"
+                return f"{su.id} — {name}"
 
-                    # Compute ETA (later of two) and Points (lower of two)
-                    def _parse_eta_admin(sval):
-                        if not sval:
-                            return None
-                        try:
-                            from datetime import datetime
-                            return datetime.strptime(str(sval).strip(), "%H:%M").time()
-                        except Exception:
-                            return None
+            signup_by_id = {su.id: su for su in sus}
+            all_labels = [_label_signup(su) for su in sus]
+            bye_label = "BYE"
 
-                    ta = _parse_eta_admin(a.eta if a else None)
-                    tb = _parse_eta_admin(b.eta if b else None)
-                    if ta and tb:
-                        eta_show = max(ta, tb).strftime("%H:%M")
-                    elif ta:
-                        eta_show = ta.strftime("%H:%M")
-                    elif tb:
-                        eta_show = tb.strftime("%H:%M")
-                    else:
-                        eta_show = None
+            rows = []
+            for p in prs:
+                a = signup_by_id.get(p.a_signup_id)
+                b = signup_by_id.get(p.b_signup_id) if p.b_signup_id else None
 
-                    pts_vals = []
-                    if a and isinstance(a.points, int):
-                        pts_vals.append(a.points)
-                    if b and isinstance(b.points, int):
-                        pts_vals.append(b.points)
-                    pts_show = min(pts_vals) if pts_vals else None
+                # Compute ETA (later of two) and Points (lower of two)
+                def _parse_eta_admin(sval):
+                    if not sval:
+                        return None
+                    try:
+                        from datetime import datetime
+                        return datetime.strptime(str(sval).strip(), "%H:%M").time()
+                    except Exception:
+                        return None
 
-                    rows.append({
-                        "ID": p.id,
-                        "A": a.player_name if a else f"A#{p.a_signup_id}",
-                        "A Faction": (p.a_faction or (a.faction if a else None)),
-                        "A Type": (a.vibe if a else None),
-                        "B": (b.player_name if b else "BYE"),
-                        "B Faction": ((p.b_faction or (b.faction if b else None)) if b else None),
-                        "B Type": ((b.vibe if b else None) if b else None),
-                        "Status": p.status,
-                        "ETA": eta_show,
-                        "Points": pts_show
-                    })
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+                ta = _parse_eta_admin(a.eta if a else None)
+                tb = _parse_eta_admin(b.eta if b else None)
+                if ta and tb:
+                    eta_show = max(ta, tb).strftime("%H:%M")
+                elif ta:
+                    eta_show = ta.strftime("%H:%M")
+                elif tb:
+                    eta_show = tb.strftime("%H:%M")
+                else:
+                    eta_show = None
+
+                pts_vals = []
+                if a and isinstance(a.points, int):
+                    pts_vals.append(a.points)
+                if b and isinstance(b.points, int):
+                    pts_vals.append(b.points)
+                pts_show = min(pts_vals) if pts_vals else None
+
+                rows.append({
+                    "ID": p.id,
+                    "A": _label_signup(a),
+                    "A Faction": (p.a_faction or (a.faction if a else None)),
+                    "A Type": (a.vibe if a else None),
+                    "B": (_label_signup(b) if b else bye_label),
+                    "B Faction": ((p.b_faction or (b.faction if b else None)) if b else None),
+                    "B Type": ((b.vibe if b else None) if b else None),
+                    "Status": p.status,
+                    "ETA": eta_show,
+                    "Points": pts_show,
+                })
+
+            df_admin_pairs = pd.DataFrame(rows)
+
+            edited = st.data_editor(
+                df_admin_pairs,
+                use_container_width=True,
+                hide_index=True,
+                key="pairings_editor_admin",
+                column_config={
+                    "ID": st.column_config.NumberColumn("ID", disabled=True),
+                    "A": st.column_config.SelectboxColumn(
+                        "A",
+                        options=all_labels,
+                        help="Choose which signup is player A",
+                    ),
+                    "A Faction": st.column_config.TextColumn("A Faction", disabled=True),
+                    "A Type": st.column_config.TextColumn("A Type", disabled=True),
+                    "B": st.column_config.SelectboxColumn(
+                        "B",
+                        options=[bye_label] + all_labels,
+                        help="Choose which signup is player B (or BYE)",
+                    ),
+                    "B Faction": st.column_config.TextColumn("B Faction", disabled=True),
+                    "B Type": st.column_config.TextColumn("B Type", disabled=True),
+                    "Status": st.column_config.SelectboxColumn(
+                        "Status",
+                        options=["pending", "played", "cancelled"],
+                    ),
+                    "ETA": st.column_config.TextColumn("ETA", disabled=True),
+                    "Points": st.column_config.NumberColumn("Points", disabled=True),
+                },
+            )
+
+            st.caption("Use the dropdowns in 'A' and 'B' to manually re-pair matches in this week/system.")
+
+            # Save button: persist changes back to DB
+            if st.button("Save pairing changes", type="primary"):
+                def parse_signup_id(label: str | None) -> int | None:
+                    if not label or label == bye_label:
+                        return None
+                    # Expect format "123 — Name"
+                    try:
+                        return int(str(label).split("—", 1)[0].strip())
+                    except Exception:
+                        return None
+
+                changed = 0
+                with Session(engine) as s:
+                    for _, row in edited.iterrows():
+                        pid = int(row["ID"])
+                        p = s.get(Pairing, pid)
+                        if not p:
+                            continue
+
+                        new_a_id = parse_signup_id(row["A"])
+                        new_b_id = parse_signup_id(row["B"])
+                        new_status = row["Status"]
+
+                        if (
+                            p.a_signup_id != new_a_id
+                            or p.b_signup_id != new_b_id
+                            or p.status != new_status
+                        ):
+                            p.a_signup_id = new_a_id
+                            p.b_signup_id = new_b_id
+                            p.status = new_status
+
+                            a_su = s.get(Signup, new_a_id) if new_a_id else None
+                            b_su = s.get(Signup, new_b_id) if new_b_id else None
+                            p.a_faction = a_su.faction if a_su else None
+                            p.b_faction = b_su.faction if b_su else None
+
+                            s.add(p)
+                            changed += 1
+
+                    if changed:
+                        s.commit()
+
+                if changed:
+                    st.success(f"Saved {changed} pairing(s).")
+                    st.rerun()
+                else:
+                    st.info("No changes detected.")
+
+            # Delete-by-ID form (unchanged behaviour)
             with st.form("delete_pairs_form", clear_on_submit=True):
                 ids_str = st.text_input("Delete pairing IDs (comma-separated)")
                 do_delete = st.form_submit_button("Delete selected")
@@ -1215,8 +1322,6 @@ if "Weekly Pairings" in idx:
                     st.success(f"Deleted {len(ids)} pairing(s).")
                 except Exception as e:
                     st.error(f"Error: {e}")
-
-
 # --------------- Admin: View History ---------------
 if "View History" in idx:
     with T[idx["View History"]]:

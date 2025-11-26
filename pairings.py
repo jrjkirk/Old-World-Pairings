@@ -8,6 +8,7 @@ from datetime import datetime, date, timedelta, time
 from typing import Optional, Dict, List, Tuple, Set, Literal, Iterable
 import os, base64, math
 import requests
+import pandas as pd
 
 import streamlit as st
 from sqlmodel import SQLModel, Field, create_engine, Session, select
@@ -1302,7 +1303,6 @@ if "Weekly Pairings" in idx:
 
                 if changed:
                     st.success(f"Saved {changed} pairing(s).")
-                    st.rerun()
                 else:
                     st.info("No changes detected.")
 

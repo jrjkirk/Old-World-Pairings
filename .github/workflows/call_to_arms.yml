@@ -1,0 +1,33 @@
+name: Weekly TOW Call to Arms
+
+on:
+  schedule:
+    # Every Sunday at 12:00 UTC (which is 12:00 GMT)
+    - cron: "0 12 * * 0"
+  workflow_dispatch: {}  # optional: lets you trigger it manually from the Actions tab
+
+jobs:
+  call-to-arms:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Adjust if your requirements file has a different name/path
+          pip install -r requirements.txt
+
+      - name: Run Call to Arms script
+        env:
+          # This secret you set in your GitHub repo settings
+          DISCORD_CALL_TO_ARMS_WEBHOOK_URL: ${{ secrets.DISCORD_CALL_TO_ARMS_WEBHOOK_URL }}
+        run: |
+          python run_call_to_arms.py

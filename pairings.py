@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, date, timedelta, time
 from typing import Optional, Dict, List, Tuple, Set, Literal, Iterable
-import os, base64, math
+import os, base64, math, json, random
 import requests
 import pandas as pd
 
@@ -37,6 +37,7 @@ ELEMENT_LOGO_URL = st.secrets.get("ELEMENT_LOGO_URL", os.getenv("ELEMENT_LOGO_UR
 DISCORD_URL = st.secrets.get("DISCORD_URL", os.getenv("DISCORD_URL", ""))
 DISCORD_LOGO_URL = st.secrets.get("DISCORD_LOGO_URL", os.getenv("DISCORD_LOGO_URL", ""))
 DISCORD_SIGNUP_WEBHOOK_URL = st.secrets.get("DISCORD_SIGNUP_WEBHOOK_URL", os.getenv("DISCORD_SIGNUP_WEBHOOK_URL", ""))
+DISCORD_CALL_TO_ARMS_WEBHOOK_URL = st.secrets.get("DISCORD_CALL_TO_ARMS_WEBHOOK_URL", os.getenv("DISCORD_CALL_TO_ARMS_WEBHOOK_URL", ""))
 SYSTEMS: List[str] = ["TOW", "Horus Heresy"]
 
 # Shared factions list can be tailored per-system later; re-using OW list as a baseline.
@@ -75,6 +76,128 @@ HH_FACTIONS: List[str] = [
     "Solar Auxilia",
 ]
 HH_FACTIONS_WITH_BLANK: List[str] = ["— None —", *HH_FACTIONS]
+
+
+
+# --- TOW Weekly Scenario Pool -------------------------------------------------
+
+COMMON_OBJECTIVES_TOW = "Dead or Fled, The King is Dead, Trophies of War"
+
+TOW_SCENARIOS = [
+    {
+        "code": "1a",
+        "name": "Upon the Field of Glory",
+        "secondary_objectives": "Baggage Train, Strategic Locations (2), Special Features",
+        "terrain_path": "missions/1a.png",
+    },
+    {
+        "code": "1b",
+        "name": "Upon the Field of Glory",
+        "secondary_objectives": "Baggage Train, Strategic Locations (4)",
+        "terrain_path": "missions/1b.png",
+    },
+    {
+        "code": "1c",
+        "name": "Upon the Field of Glory",
+        "secondary_objectives": "Baggage Train, Strategic Locations (3), Domination",
+        "terrain_path": "missions/1c.png",
+    },
+
+    {
+        "code": "2a",
+        "name": "King of the Hill",
+        "secondary_objectives": "Baggage Train",
+        "terrain_path": "missions/2a.png",
+    },
+    {
+        "code": "2b",
+        "name": "King of the Hill",
+        "secondary_objectives": "Baggage Train, Special Features",
+        "terrain_path": "missions/2b.png",
+    },
+    {
+        "code": "2c",
+        "name": "King of the Hill",
+        "secondary_objectives": "Baggage Train",
+        "terrain_path": "missions/2c.png",
+    },
+
+    {
+        "code": "3a",
+        "name": "Drawn Battlelines",
+        "secondary_objectives": "Baggage Train, Strategic Locations (3)",
+        "terrain_path": "missions/3a.png",
+    },
+    {
+        "code": "3b",
+        "name": "Drawn Battlelines",
+        "secondary_objectives": "Baggage Train, Strategic Locations (3)",
+        "terrain_path": "missions/3b.png",
+    },
+    {
+        "code": "3c",
+        "name": "Drawn Battlelines",
+        "secondary_objectives": "Baggage Train, Strategic Locations (3)",
+        "terrain_path": "missions/3c.png",
+    },
+
+    {
+        "code": "4a",
+        "name": "Close Quarter",
+        "secondary_objectives": "Strategic Locations (2)",
+        "terrain_path": "missions/4a.png",
+    },
+    {
+        "code": "4b",
+        "name": "Close Quarter",
+        "secondary_objectives": "Strategic Locations (2)",
+        "terrain_path": "missions/4b.png",
+    },
+    {
+        "code": "4c",
+        "name": "Close Quarter",
+        "secondary_objectives": "Strategic Locations (2)",
+        "terrain_path": "missions/4c.png",
+    },
+
+    {
+        "code": "5a",
+        "name": "A Chance Encounter",
+        "secondary_objectives": "Special Features",
+        "terrain_path": "missions/5a.png",
+    },
+    {
+        "code": "5b",
+        "name": "A Chance Encounter",
+        "secondary_objectives": "Special Features, Domination",
+        "terrain_path": "missions/5b.png",
+    },
+    {
+        "code": "5c",
+        "name": "A Chance Encounter",
+        "secondary_objectives": "Special Features",
+        "terrain_path": "missions/5c.png",
+    },
+
+    {
+        "code": "6a",
+        "name": "Encirclement",
+        "secondary_objectives": "Baggage Train, Special Features, Strategic Locations (4)",
+        "terrain_path": "missions/6a.png",
+    },
+    {
+        "code": "6b",
+        "name": "Encirclement",
+        "secondary_objectives": "Baggage Train, Special Features",
+        "terrain_path": "missions/6b.png",
+    },
+    {
+        "code": "6c",
+        "name": "Encirclement",
+        "secondary_objectives": "Special Features, Strategic Locations (4)",
+        "terrain_path": "missions/6c.png",
+    },
+]
 
 
 def _faction_index_or_blank(value: Optional[str]) -> int:
@@ -338,6 +461,100 @@ def post_discord_drop(player_name: str, faction: Optional[str], vibe: Optional[s
     except Exception:
         pass
 
+
+
+
+CALL_TO_ARMS_TEMPLATE = """📣 I SUMMON THE ELECTOR COUNTS 📣
+
+🎲 Scenario of the week: {scenario_name}
+
+- Common Objectives:
+{common_objectives}
+
+- Secondary Objectives:
+{secondary_objectives}
+
+⚔️ Army Composition Rules: Combined Arms and Grand Melee, Square Based Comp (optional if pre-agreed for competitive matches only) 
+
+Complete the online form if you are coming this Wednesday {wednesday_date}. The recommended start is 18:00-19:00. 
+
+➡️ https://calltoarms.streamlit.app/
+
+🤖 Your new AI overlords will pair everybody up based on responses and I will make a post on Tuesday evening. If you wish to pre-arrange a game, feel free and just let us know so we can anticipate the numbers.
+"""
+
+
+def pick_random_tow_scenario() -> dict | None:
+    """Return a random TOW scenario from the pool, or None if empty."""
+    if not TOW_SCENARIOS:
+        return None
+    return random.choice(TOW_SCENARIOS)
+
+
+def next_wednesday(from_date: date | None = None) -> date:
+    """Return the upcoming Wednesday date, assuming games are on Wednesdays."""
+    if from_date is None:
+        from_date = date.today()
+    # 0=Mon,1=Tue,2=Wed,...
+    days_ahead = (2 - from_date.weekday()) % 7
+    if days_ahead == 0:
+        days_ahead = 7  # Always pick the *next* Wednesday, not today
+    return from_date + timedelta(days=days_ahead)
+
+
+def build_tow_call_to_arms_message(scenario: dict, wednesday_date: date) -> str:
+    """Fill in the Call to Arms template with scenario + date."""
+    weds_str = wednesday_date.strftime("%d/%m/%Y")  # e.g. 26/11/2025
+    return CALL_TO_ARMS_TEMPLATE.format(
+        scenario_name=scenario.get("name", "Unknown Scenario"),
+        common_objectives=COMMON_OBJECTIVES_TOW,
+        secondary_objectives=scenario.get("secondary_objectives", ""),
+        wednesday_date=weds_str,
+    )
+
+
+def post_tow_call_to_arms_with_image(scenario: dict, wednesday_date: date | None = None) -> None:
+    """
+    Post the weekly TOW Call to Arms message to Discord via the call-to-arms webhook.
+    If a terrain image exists on disk for this scenario, it will be uploaded with the message.
+    """
+    if not DISCORD_CALL_TO_ARMS_WEBHOOK_URL:
+        return  # nothing configured
+
+    if wednesday_date is None:
+        wednesday_date = next_wednesday()
+
+    content = build_tow_call_to_arms_message(scenario, wednesday_date)
+    payload = {"content": content}
+
+    terrain_path = scenario.get("terrain_path")
+    if terrain_path:
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            full_path = os.path.join(base_dir, terrain_path)
+            if os.path.exists(full_path):
+                with open(full_path, "rb") as f:
+                    files = {"file": (os.path.basename(full_path), f, "image/png")}
+                    requests.post(
+                        DISCORD_CALL_TO_ARMS_WEBHOOK_URL,
+                        data={"payload_json": json.dumps(payload)},
+                        files=files,
+                        timeout=10,
+                    )
+                    return
+        except Exception:
+            # Fall back to plain text post if file upload fails
+            pass
+
+    try:
+        requests.post(
+            DISCORD_CALL_TO_ARMS_WEBHOOK_URL,
+            json=payload,
+            timeout=10,
+        )
+    except Exception:
+        # Do not break callers if Discord is unreachable
+        pass
 
 
 def uk_date_str(d: date) -> str:
@@ -664,7 +881,7 @@ with st.sidebar:
         st.markdown(f"<div style='display:flex;justify-content:center;align-items:center;margin-top:10px'>{disc_img}</div>", unsafe_allow_html=True)
 
 tabs_public = ["Call to Arms", "Pairings"]
-tabs_admin  = ["Signups", "Generate Pairings", "Weekly Pairings", "View History"]
+tabs_admin  = ["Signups", "Generate Pairings", "Weekly Pairings", "View History", "Call to Arms Post"]
 order = tabs_public + (tabs_admin if st.session_state.get("is_admin") else [])
 T = st.tabs(order)
 idx = {name:i for i,name in enumerate(order)}
@@ -1394,3 +1611,69 @@ if "View History" in idx:
             st.dataframe(df, use_container_width=True, hide_index=True)
             csv = df.to_csv(index=False).encode("utf-8")
             st.download_button("Download history as CSV", data=csv, file_name="pairings_history.csv", mime="text/csv", use_container_width=True)
+
+# --------------- Admin: Call to Arms Post ---------------
+if "Call to Arms Post" in idx:
+    with T[idx["Call to Arms Post"]]:
+        st.subheader("Discord Call to Arms (TOW)")
+
+        if not DISCORD_CALL_TO_ARMS_WEBHOOK_URL:
+            st.warning("No DISCORD_CALL_TO_ARMS_WEBHOOK_URL configured in secrets or environment; nothing will be sent.")
+        else:
+            st.caption("Post this week's TOW Call to Arms message to Discord immediately.")
+
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            default_wed = week_id_wed(date.today())
+            week_str = st.text_input(
+                "Week (Wednesday id, DD/MM/YYYY)",
+                value=default_wed,
+                key="cta_week",
+                help="This date will be used in the Call to Arms text.",
+            )
+        with col2:
+            use_random = st.checkbox("Pick random scenario", value=True, key="cta_random")
+
+        scenario_for_preview = None
+        if use_random:
+            st.info("A random TOW scenario will be chosen when you post.")
+        else:
+            if not TOW_SCENARIOS:
+                st.error("No TOW scenarios configured.")
+            else:
+                options = [f"{sc['code']} — {sc['name']}" for sc in TOW_SCENARIOS]
+                sel = st.selectbox("Scenario", options=options, key="cta_scenario")
+                sel_code = sel.split("—", 1)[0].strip()
+                for sc in TOW_SCENARIOS:
+                    if sc["code"] == sel_code:
+                        scenario_for_preview = sc
+                        break
+
+        if scenario_for_preview:
+            st.markdown(
+                f"**Selected scenario:** `{scenario_for_preview['code']}` — {scenario_for_preview['name']}  \n"
+                f"**Secondary Objectives:** {scenario_for_preview['secondary_objectives']}"
+            )
+
+        if st.button("Post TOW Call to Arms to Discord now", type="primary", use_container_width=True):
+            if not DISCORD_CALL_TO_ARMS_WEBHOOK_URL:
+                st.error("DISCORD_CALL_TO_ARMS_WEBHOOK_URL is not configured; cannot post to Discord.")
+            else:
+                try:
+                    if use_random:
+                        scenario = pick_random_tow_scenario()
+                    else:
+                        scenario = scenario_for_preview
+
+                    if not scenario:
+                        st.error("No scenario available to post.")
+                    else:
+                        try:
+                            wed_date = parse_week_id(week_str)
+                        except Exception:
+                            wed_date = next_wednesday()
+                        post_tow_call_to_arms_with_image(scenario, wed_date)
+                        st.success(f"Posted Call to Arms for {scenario['code']} — {scenario['name']}.")
+                except Exception as e:
+                    st.error(f"Error while posting Call to Arms: {e}")
+

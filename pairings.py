@@ -557,6 +557,23 @@ def post_tow_call_to_arms_with_image(scenario: dict, wednesday_date: date | None
         pass
 
 
+def run_scheduled_tow_call_to_arms() -> None:
+    """
+    Helper for external schedulers (e.g. GitHub Actions).
+    Picks a random TOW scenario and posts the Call to Arms for the
+    upcoming Wednesday, using the call-to-arms Discord webhook.
+    """
+    if not DISCORD_CALL_TO_ARMS_WEBHOOK_URL:
+        return
+
+    scenario = pick_random_tow_scenario()
+    if not scenario:
+        return
+
+    wed_date = next_wednesday()
+    post_tow_call_to_arms_with_image(scenario, wed_date)
+
+
 def uk_date_str(d: date) -> str:
     return d.strftime("%d/%m/%Y")
 

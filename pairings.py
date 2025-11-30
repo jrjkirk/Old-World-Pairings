@@ -11,6 +11,17 @@ import requests
 import pandas as pd
 
 import streamlit as st
+
+def _get_secret(name: str, default=None):
+    """Safe secret getter: uses st.secrets when available, else falls back to environment variables.
+    This keeps non-Streamlit contexts (e.g. GitHub Actions) from crashing when importing this module.
+    """
+    try:
+        return st.secrets.get(name, os.getenv(name, default))
+    except Exception:
+        return os.getenv(name, default)
+
+
 from sqlmodel import SQLModel, Field, create_engine, Session, select
 from sqlalchemy.pool import NullPool
 
@@ -21,23 +32,23 @@ st.set_page_config(page_title="Call to Arms — Pairings", layout="wide")
 if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
 
-ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD", os.getenv("ADMIN_PASSWORD", "change-me"))
-LOGO_URL = st.secrets.get("LOGO_URL", os.getenv("LOGO_URL", ""))
-LOGO_WIDTH = int(st.secrets.get("LOGO_WIDTH", os.getenv("LOGO_WIDTH", 120)))
-DATABASE_URL = st.secrets.get("DATABASE_URL", os.getenv("DATABASE_URL"))  # optional (Postgres); default local SQLite
+ADMIN_PASSWORD = _get_secret("ADMIN_PASSWORD", "change-me")
+LOGO_URL = _get_secret("LOGO_URL", "")
+LOGO_WIDTH = int(_get_secret("LOGO_WIDTH", 120))
+DATABASE_URL = _get_secret("DATABASE_URL")  # optional (Postgres); default local SQLite
 DB_PATH = "pairings_db.sqlite"
 
 
 
-LOGO_TOW_URL = st.secrets.get("TOW_LOGO_URL", os.getenv("TOW_LOGO_URL", ""))
-LOGO_HH_URL = st.secrets.get("HH_LOGO_URL", os.getenv("HH_LOGO_URL", ""))
-HEADER_LOGO_WIDTH = int(st.secrets.get("HEADER_LOGO_WIDTH", os.getenv("HEADER_LOGO_WIDTH", 120)))
-ELEMENT_URL = st.secrets.get("ELEMENT_GAMES_URL", os.getenv("ELEMENT_GAMES_URL", ""))
-ELEMENT_LOGO_URL = st.secrets.get("ELEMENT_LOGO_URL", os.getenv("ELEMENT_LOGO_URL", ""))
-DISCORD_URL = st.secrets.get("DISCORD_URL", os.getenv("DISCORD_URL", ""))
-DISCORD_LOGO_URL = st.secrets.get("DISCORD_LOGO_URL", os.getenv("DISCORD_LOGO_URL", ""))
-DISCORD_SIGNUP_WEBHOOK_URL = st.secrets.get("DISCORD_SIGNUP_WEBHOOK_URL", os.getenv("DISCORD_SIGNUP_WEBHOOK_URL", ""))
-DISCORD_CALL_TO_ARMS_WEBHOOK_URL = st.secrets.get("DISCORD_CALL_TO_ARMS_WEBHOOK_URL", os.getenv("DISCORD_CALL_TO_ARMS_WEBHOOK_URL", ""))
+LOGO_TOW_URL = _get_secret("TOW_LOGO_URL", "")
+LOGO_HH_URL = _get_secret("HH_LOGO_URL", "")
+HEADER_LOGO_WIDTH = int(_get_secret("HEADER_LOGO_WIDTH", 120))
+ELEMENT_URL = _get_secret("ELEMENT_GAMES_URL", "")
+ELEMENT_LOGO_URL = _get_secret("ELEMENT_LOGO_URL", "")
+DISCORD_URL = _get_secret("DISCORD_URL", "")
+DISCORD_LOGO_URL = _get_secret("DISCORD_LOGO_URL", "")
+DISCORD_SIGNUP_WEBHOOK_URL = _get_secret("DISCORD_SIGNUP_WEBHOOK_URL", "")
+DISCORD_CALL_TO_ARMS_WEBHOOK_URL = _get_secret("DISCORD_CALL_TO_ARMS_WEBHOOK_URL", "")
 SYSTEMS: List[str] = ["TOW", "Horus Heresy"]
 
 # Shared factions list can be tailored per-system later; re-using OW list as a baseline.
@@ -480,7 +491,7 @@ Complete the online form if you are coming this Wednesday {wednesday_date}. The 
 
 ➡️ https://calltoarms.streamlit.app/
 
-🤖 Your new AI overlords will pair everybody up based on responses and I will make a post on Tuesday evening. If you wish to pre-arrange a game, feel free and just let us know so we can anticipate the numbers.
+🤖 Your new AI overlords will pair everybody up based on responses and will make a post on Tuesday evening. If you wish to pre-arrange a game, feel free and just let us know so we can anticipate the numbers.
 """
 
 
@@ -555,23 +566,6 @@ def post_tow_call_to_arms_with_image(scenario: dict, wednesday_date: date | None
     except Exception:
         # Do not break callers if Discord is unreachable
         pass
-
-
-def run_scheduled_tow_call_to_arms() -> None:
-    """
-    Helper for external schedulers (e.g. GitHub Actions).
-    Picks a random TOW scenario and posts the Call to Arms for the
-    upcoming Wednesday, using the call-to-arms Discord webhook.
-    """
-    if not DISCORD_CALL_TO_ARMS_WEBHOOK_URL:
-        return
-
-    scenario = pick_random_tow_scenario()
-    if not scenario:
-        return
-
-    wed_date = next_wednesday()
-    post_tow_call_to_arms_with_image(scenario, wed_date)
 
 
 def uk_date_str(d: date) -> str:

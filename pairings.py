@@ -223,6 +223,32 @@ def _faction_index_or_blank(value: Optional[str]) -> int:
 
 # ===================== Database / Models =====================
 
+
+def _public_vibe_display(a_v, b_v):
+    """Decide the public-facing 'Type' string for a pairing, respecting Intro/Either semantics."""
+    av = (a_v or "").strip()
+    bv = (b_v or "").strip()
+    av_l = av.lower()
+    bv_l = bv.lower()
+
+    # Intro overrides everything
+    if av_l == "intro" or bv_l == "intro":
+        return "Intro"
+
+    # 'Either' adopts the other player's vibe
+    if av_l == "either" and bv:
+        return bv
+    if bv_l == "either" and av:
+        return av
+
+    # Both 'Either' → show 'Either'
+    if av_l == "either" and bv_l == "either":
+        return "Either"
+
+    # Otherwise prefer A's vibe, falling back to B's, then blank
+    return av or bv or ""
+
+
 SQLModel.metadata.clear()
 
 class Player(SQLModel, table=True):

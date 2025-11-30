@@ -9,6 +9,7 @@ from typing import Optional, Dict, List, Tuple, Set, Literal, Iterable
 import os, base64, math, json, random
 import requests
 import pandas as pd
+from table2ascii import table2ascii as t2a, PresetStyle
 
 import streamlit as st
 
@@ -49,6 +50,7 @@ DISCORD_URL = _get_secret("DISCORD_URL", "")
 DISCORD_LOGO_URL = _get_secret("DISCORD_LOGO_URL", "")
 DISCORD_SIGNUP_WEBHOOK_URL = _get_secret("DISCORD_SIGNUP_WEBHOOK_URL", "")
 DISCORD_CALL_TO_ARMS_WEBHOOK_URL = _get_secret("DISCORD_CALL_TO_ARMS_WEBHOOK_URL", "")
+DISCORD_PAIRINGS_WEBHOOK_URL = _get_secret("DISCORD_PAIRINGS_WEBHOOK_URL", "")
 SYSTEMS: List[str] = ["TOW", "Horus Heresy"]
 
 # Shared factions list can be tailored per-system later; re-using OW list as a baseline.
@@ -473,6 +475,61 @@ def post_discord_drop(player_name: str, faction: Optional[str], vibe: Optional[s
         pass
 
 
+
+
+
+
+def render_pairings_ascii_table(rows: list[dict], week: str, system: str) -> str:
+    """
+    Render the public-style pairings rows into an ASCII table suitable for Discord.
+    Expects rows with keys: A, Faction A, B, Faction B, Type, ETA, Points.
+    """
+    if not rows:
+        return f"No pairings for {system} — {week}."
+
+    header = ["#", "A", "Faction A", "B", "Faction B", "Type", "ETA", "Pts"]
+    body = []
+    for i, r in enumerate(rows, start=1):
+        body.append([
+            i,
+            r.get("A", "") or "",
+            r.get("Faction A", "") or "",
+            r.get("B", "") or "",
+            r.get("Faction B", "") or "",
+            r.get("Type", "") or "",
+            r.get("ETA", "") or "",
+            r.get("Points", "") or "",
+        ])
+
+    table = t2a(
+        header=header,
+        body=body,
+        style=PresetStyle.thin_compact,
+    )
+
+    title = f"**{system} Pairings — {week}**"
+    return f"{title}\n```text\n{table}\n```"
+
+
+def post_pairings_table_to_discord(rows: list[dict], week: str, system: str) -> None:
+    """
+    Post the public pairings table to Discord via the pairings webhook.
+    Does nothing if no webhook is configured.
+    """
+    if not DISCORD_PAIRINGS_WEBHOOK_URL:
+        return
+
+    content = render_pairings_ascii_table(rows, week, system)
+
+    try:
+        requests.post(
+            DISCORD_PAIRINGS_WEBHOOK_URL,
+            json={"content": content},
+            timeout=10,
+        )
+    except Exception:
+        # Do not break the app if Discord is unreachable
+        pass
 
 
 CALL_TO_ARMS_TEMPLATE = """📣 I SUMMON THE ELECTOR COUNTS 📣
@@ -1406,6 +1463,8 @@ if "Weekly Pairings" in idx:
             all_labels = [_label_signup(su) for su in sus]
             bye_label = "BYE"
 
+            public_rows_for_discord: List[dict] = []
+
             rows = []
             for p in prs:
                 a = signup_by_id.get(p.a_signup_id)
@@ -1438,6 +1497,20 @@ if "Weekly Pairings" in idx:
                 if b and isinstance(b.points, int):
                     pts_vals.append(b.points)
                 pts_show = min(pts_vals) if pts_vals else None
+
+              
+
+                type_show = _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None))
+
+                public_rows_for_discord.append({
+                    "A": a.player_name if a else f"A#{p.a_signup_id}",
+                    "Faction A": (p.a_faction or (a.faction if a else None)),
+                    "B": (b.player_name if b else "BYE"),
+                    "Faction B": ((p.b_faction or (b.faction if b else None)) if b else None),
+                    "Type": type_show,
+                    "ETA": eta_show,
+                    "Points": pts_show,
+                })
 
                 rows.append({
                     "ID": p.id,
@@ -1534,7 +1607,17 @@ if "Weekly Pairings" in idx:
                 else:
                     st.info("No changes detected.")
 
-            # Delete-by-ID form (unchanged behaviour)
+            #             if DISCORD_PAIRINGS_WEBHOOK_URL:
+                if st.button("Post pairings to Discord"):
+                    if public_rows_for_discord:
+                        post_pairings_table_to_discord(public_rows_for_discord, week_lookup, sys_pick)
+                        st.success("Posted pairings to Discord.")
+                    else:
+                        st.warning("No pairings to post to Discord.")
+            else:
+                st.caption("Configure DISCORD_PAIRINGS_WEBHOOK_URL to enable Discord pairings posting.")
+
+# Delete-by-ID form (unchanged behaviour)
             with st.form("delete_pairs_form", clear_on_submit=True):
                 ids_str = st.text_input("Delete pairing IDs (comma-separated)")
                 do_delete = st.form_submit_button("Delete selected")

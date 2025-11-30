@@ -556,22 +556,30 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
 
     # Figure size tuned for Discord/mobile readability
     n_rows = len(df)
-    height = 1.2 + 0.4 * n_rows
-    height = max(2.5, min(height, 12.0))
-    # Wider figure to reduce text overlap in name columns
+    height = 1.2 + 0.5 * n_rows
+    height = max(3.0, min(height, 14.0))
+
+    # Dark theme to match app sidebar-style look
+    bg_color = "#0E1117"       # dark blue/black
+    header_bg = "#1E2634"      # slightly lighter for header
+    text_color = "#FFFFFF"     # white text
+    edge_color = "#FFFFFF"     # white grid lines
+
     fig, ax = plt.subplots(figsize=(12, height))
+    fig.patch.set_facecolor(bg_color)
+    ax.set_facecolor(bg_color)
     ax.axis("off")
 
     # Create the table
     table = ax.table(
         cellText=df.values.tolist(),
         colLabels=df.columns.tolist(),
-        loc="center"
+        loc="center",
+        cellLoc="left",
     )
     table.auto_set_font_size(False)
-    # Slightly smaller base font, but wider columns
-    table.set_fontsize(8)
-    table.scale(1.1, 1.25)
+    table.set_fontsize(12)
+    table.scale(1.4, 1.6)
 
     # Let matplotlib adjust column widths based on content
     try:
@@ -580,18 +588,31 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
         # If this ever fails, we still have a usable table
         pass
 
-    # Left-align text in cells for readability
+    # Style cells: header vs body, alignment, colors
     for (row, col), cell in table.get_celld().items():
-        cell.set_text_props(ha="left", va="center")
+        cell.set_edgecolor(edge_color)
+        cell.set_text_props(color=text_color, ha="left", va="center")
+        if row == 0:
+            # Header row
+            cell.set_facecolor(header_bg)
+            cell.set_text_props(weight="bold")
+        else:
+            cell.set_facecolor(bg_color)
 
-    plt.tight_layout()
+    # Reduce outer whitespace
+    plt.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.02)
 
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=200, bbox_inches="tight")
+    fig.savefig(
+        buf,
+        format="png",
+        dpi=150,
+        bbox_inches="tight",
+        facecolor=fig.get_facecolor(),
+    )
     plt.close(fig)
     buf.seek(0)
     return buf
-
 
 
 def post_pairings_table_to_discord(rows: list[dict], week: str, system: str) -> None:

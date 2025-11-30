@@ -553,9 +553,9 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
     df = df[cols]
     df.insert(0, "#", range(1, len(df) + 1))
 
-    # --- sizing: aggressively large, minimal outer margins ---
+    # --- sizing: even larger text, minimal outer margins ---
     n_rows = len(df)
-    height = max(4.0, 0.75 * n_rows + 2)
+    height = max(4.0, 0.8 * n_rows + 2)
 
     bg_color = "#0E1117"
     header_bg = "#1E2634"
@@ -572,12 +572,12 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
         colLabels=df.columns.tolist(),
         loc="center",
         cellLoc="left",
-        bbox=[0, 0, 1, 1],  # fill entire axes, removes outside buffer
+        bbox=[0, 0, 1, 1],
     )
 
     table.auto_set_font_size(False)
-    table.set_fontsize(16)
-    table.scale(1.6, 1.9)
+    table.set_fontsize(18)   # bigger base font
+    table.scale(1.8, 2.2)   # wider + taller cells
 
     try:
         table.auto_set_column_width(col=list(range(len(df.columns))))
@@ -593,7 +593,6 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
         else:
             cell.set_facecolor(bg_color)
 
-    # absolutely no margins
     plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
     buf = io.BytesIO()

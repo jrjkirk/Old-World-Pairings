@@ -5,3 +5,4 @@ psycopg2-binary>=2.9
 pandas>=2.0
 requests>=2.0
 table2ascii>=1.1
+matplotlib

@@ -1633,7 +1633,8 @@ if "Weekly Pairings" in idx:
                 else:
                     st.info("No changes detected.")
 
-            #             if DISCORD_PAIRINGS_WEBHOOK_URL:
+            # Discord: post public-style pairings table to webhook, if configured
+            if DISCORD_PAIRINGS_WEBHOOK_URL:
                 if st.button("Post pairings to Discord"):
                     if public_rows_for_discord:
                         post_pairings_table_to_discord(public_rows_for_discord, week_lookup, sys_pick)
@@ -1642,6 +1643,7 @@ if "Weekly Pairings" in idx:
                         st.warning("No pairings to post to Discord.")
             else:
                 st.caption("Configure DISCORD_PAIRINGS_WEBHOOK_URL to enable Discord pairings posting.")
+
 
 # Delete-by-ID form (unchanged behaviour)
             with st.form("delete_pairs_form", clear_on_submit=True):

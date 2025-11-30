@@ -558,7 +558,8 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
     n_rows = len(df)
     height = 1.2 + 0.4 * n_rows
     height = max(2.5, min(height, 12.0))
-    fig, ax = plt.subplots(figsize=(8, height))
+    # Wider figure to reduce text overlap in name columns
+    fig, ax = plt.subplots(figsize=(12, height))
     ax.axis("off")
 
     # Create the table
@@ -568,8 +569,20 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
         loc="center"
     )
     table.auto_set_font_size(False)
-    table.set_fontsize(9)
-    table.scale(1, 1.2)
+    # Slightly smaller base font, but wider columns
+    table.set_fontsize(8)
+    table.scale(1.1, 1.25)
+
+    # Let matplotlib adjust column widths based on content
+    try:
+        table.auto_set_column_width(col=list(range(len(df.columns))))
+    except Exception:
+        # If this ever fails, we still have a usable table
+        pass
+
+    # Left-align text in cells for readability
+    for (row, col), cell in table.get_celld().items():
+        cell.set_text_props(ha="left", va="center")
 
     plt.tight_layout()
 
@@ -578,6 +591,7 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
     plt.close(fig)
     buf.seek(0)
     return buf
+
 
 
 def post_pairings_table_to_discord(rows: list[dict], week: str, system: str) -> None:

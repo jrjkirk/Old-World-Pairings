@@ -6,10 +6,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, date, timedelta, time
 from typing import Optional, Dict, List, Tuple, Set, Literal, Iterable
-import os, base64, math, json, random
+import os, base64, math, json, random, io
 import requests
 import pandas as pd
 from table2ascii import table2ascii as t2a, PresetStyle
+import matplotlib.pyplot as plt
 
 import streamlit as st
 
@@ -537,22 +538,82 @@ def render_pairings_ascii_table(rows: list[dict], week: str, system: str) -> str
     return f"{title}\n```text\n{table}\n```"
 
 
+
+def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesIO | None:
+    """Render pairings as a PNG image using matplotlib, for Discord posting.
+
+    Returns a BytesIO buffer positioned at start, or None if rows is empty.
+    """
+    if not rows:
+        return None
+
+    # Build a simple DataFrame with a numeric index column
+    df = pd.DataFrame(rows)
+    # Ensure column order and add a "#" column
+    cols = ["A", "Faction A", "B", "Faction B", "Type", "ETA", "Points"]
+    df = df[cols]
+    df.insert(0, "#", range(1, len(df) + 1))
+
+    # Figure size tuned for Discord/mobile readability
+    n_rows = len(df)
+    height = 1.2 + 0.4 * n_rows
+    height = max(2.5, min(height, 12.0))
+    fig, ax = plt.subplots(figsize=(8, height))
+    ax.axis("off")
+
+    # Create the table
+    table = ax.table(
+        cellText=df.values.tolist(),
+        colLabels=df.columns.tolist(),
+        loc="center"
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(9)
+    table.scale(1, 1.2)
+
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
 def post_pairings_table_to_discord(rows: list[dict], week: str, system: str) -> None:
     """
     Post the public pairings table to Discord via the pairings webhook.
+    Uses an image of the table when possible, with a text title, and falls back to ASCII.
     Does nothing if no webhook is configured.
     """
     if not DISCORD_PAIRINGS_WEBHOOK_URL:
         return
 
-    content = render_pairings_ascii_table(rows, week, system)
+    title = f"**{system} Pairings — {week}**"
+
+    img_buf = None
+    try:
+        img_buf = render_pairings_image(rows, week, system)
+    except Exception:
+        img_buf = None
 
     try:
-        requests.post(
-            DISCORD_PAIRINGS_WEBHOOK_URL,
-            json={"content": content},
-            timeout=10,
-        )
+        if img_buf is not None:
+            files = {"file": ("pairings.png", img_buf, "image/png")}
+            payload = {"content": title}
+            requests.post(
+                DISCORD_PAIRINGS_WEBHOOK_URL,
+                data={"payload_json": json.dumps(payload)},
+                files=files,
+                timeout=10,
+            )
+        else:
+            content = render_pairings_ascii_table(rows, week, system)
+            requests.post(
+                DISCORD_PAIRINGS_WEBHOOK_URL,
+                json={"content": content},
+                timeout=10,
+            )
     except Exception:
         # Do not break the app if Discord is unreachable
         pass

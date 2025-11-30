@@ -549,58 +549,52 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
 
     # Build a simple DataFrame with a numeric index column
     df = pd.DataFrame(rows)
-    # Ensure column order and add a "#" column
     cols = ["A", "Faction A", "B", "Faction B", "Type", "ETA", "Points"]
     df = df[cols]
     df.insert(0, "#", range(1, len(df) + 1))
 
-    # Figure size tuned for Discord/mobile readability
+    # --- sizing: aggressively large, minimal outer margins ---
     n_rows = len(df)
-    height = 1.2 + 0.5 * n_rows
-    height = max(3.0, min(height, 14.0))
+    height = max(4.0, 0.75 * n_rows + 2)
 
-    # Dark theme to match app sidebar-style look
-    bg_color = "#0E1117"       # dark blue/black
-    header_bg = "#1E2634"      # slightly lighter for header
-    text_color = "#FFFFFF"     # white text
-    edge_color = "#FFFFFF"     # white grid lines
+    bg_color = "#0E1117"
+    header_bg = "#1E2634"
+    text_color = "#FFFFFF"
+    edge_color = "#FFFFFF"
 
-    fig, ax = plt.subplots(figsize=(12, height))
+    fig, ax = plt.subplots(figsize=(16, height))
     fig.patch.set_facecolor(bg_color)
     ax.set_facecolor(bg_color)
     ax.axis("off")
 
-    # Create the table
     table = ax.table(
         cellText=df.values.tolist(),
         colLabels=df.columns.tolist(),
         loc="center",
         cellLoc="left",
+        bbox=[0, 0, 1, 1],  # fill entire axes, removes outside buffer
     )
-    table.auto_set_font_size(False)
-    table.set_fontsize(12)
-    table.scale(1.4, 1.6)
 
-    # Let matplotlib adjust column widths based on content
+    table.auto_set_font_size(False)
+    table.set_fontsize(16)
+    table.scale(1.6, 1.9)
+
     try:
         table.auto_set_column_width(col=list(range(len(df.columns))))
     except Exception:
-        # If this ever fails, we still have a usable table
         pass
 
-    # Style cells: header vs body, alignment, colors
     for (row, col), cell in table.get_celld().items():
         cell.set_edgecolor(edge_color)
         cell.set_text_props(color=text_color, ha="left", va="center")
         if row == 0:
-            # Header row
             cell.set_facecolor(header_bg)
             cell.set_text_props(weight="bold")
         else:
             cell.set_facecolor(bg_color)
 
-    # Reduce outer whitespace
-    plt.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.02)
+    # absolutely no margins
+    plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
     buf = io.BytesIO()
     fig.savefig(
@@ -608,11 +602,13 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
         format="png",
         dpi=150,
         bbox_inches="tight",
+        pad_inches=0,
         facecolor=fig.get_facecolor(),
     )
     plt.close(fig)
     buf.seek(0)
     return buf
+
 
 
 def post_pairings_table_to_discord(rows: list[dict], week: str, system: str) -> None:

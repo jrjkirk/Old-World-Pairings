@@ -553,9 +553,9 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
     df = df[cols]
     df.insert(0, "#", range(1, len(df) + 1))
 
-    # --- sizing: even larger text, minimal outer margins ---
+    # --- sizing: large text, minimal padding ---
     n_rows = len(df)
-    height = max(4.0, 0.8 * n_rows + 2)
+    height = max(4.0, 0.7 * n_rows + 2)
 
     bg_color = "#0E1117"
     header_bg = "#1E2634"
@@ -576,8 +576,9 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
     )
 
     table.auto_set_font_size(False)
-    table.set_fontsize(18)   # bigger base font
-    table.scale(1.8, 2.2)   # wider + taller cells
+    # Bigger font, but cells not overly inflated
+    table.set_fontsize(20)
+    table.scale(1.2, 1.4)
 
     try:
         table.auto_set_column_width(col=list(range(len(df.columns))))
@@ -585,6 +586,11 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
         pass
 
     for (row, col), cell in table.get_celld().items():
+        # Reduce inner padding inside each cell so text hugs the borders more
+        try:
+            cell.PAD = 0.02
+        except Exception:
+            pass
         cell.set_edgecolor(edge_color)
         cell.set_text_props(color=text_color, ha="left", va="center")
         if row == 0:

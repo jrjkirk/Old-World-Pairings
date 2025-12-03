@@ -957,7 +957,8 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
                 continue
             # find best candidate not used, minimal "distance"
             best_j = None
-            best_dist = (99,99,99)  # lexicographic over (vibe, exp, points)
+            # lexicographic over (mirror, scenario, ETA bucket, vibe, experience, points)
+            best_dist = (99, 99, 99, 99, 99, 99)
             for j in range(i+1, len(candidates)):
                 other = candidates[j]
                 if other.key in used:
@@ -965,12 +966,15 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
                 # avoid rematch if we can
                 if has_played(ms.key, other.key):
                     continue
-                # distance over preference tuple
+                # distance over preference tuple, with soft penalties for mirror, scenario mismatch, and ETA gap
                 dv_base = abs(ms.preference[0] - other.preference[0])
                 dv = _vibe_distance_override(ms.row, other.row, dv_base)
                 de = abs(ms.preference[1] - other.preference[1])
                 dp = abs(ms.preference[2] - other.preference[2])
-                dist = (dv, de, dp)
+                eta_b = _eta_bucket_diff(ms.row, other.row)
+                scen_d = _scenario_diff_tow(ms.row, other.row, system)
+                mir = _mirror_flag(ms.row, other.row)
+                dist = (mir, scen_d, eta_b, dv, de, dp)
                 if dist < best_dist:
                     best_dist = dist
                     best_j = j
@@ -990,11 +994,10 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
                     dv = _vibe_distance_override(ms.row, other.row, dv_base)
                     de = abs(ms.preference[1] - other.preference[1])
                     dp = abs(ms.preference[2] - other.preference[2])
-                    
                     eta_b = _eta_bucket_diff(ms.row, other.row)
                     scen_d = _scenario_diff_tow(ms.row, other.row, system)
                     mir = _mirror_flag(ms.row, other.row)
-                    dist = (dv, de, dp)
+                    dist = (mir, scen_d, eta_b, dv, de, dp)
                     if dist < best_dist:
                         best_dist = dist
                         best_j = j

@@ -748,6 +748,24 @@ def post_tow_call_to_arms_with_image(scenario: dict, wednesday_date: date | None
         pass
 
 
+
+
+def run_scheduled_tow_call_to_arms() -> None:
+    """Entry point for GitHub Actions to post the weekly TOW Call to Arms.
+
+    This helper is intentionally Streamlit-agnostic so it can be imported and run
+    from bare Python (e.g. `python run_call_to_arms.py`) without requiring a
+    Streamlit runtime or secrets.toml. It relies on DISCORD_CALL_TO_ARMS_WEBHOOK_URL
+    being provided either via Streamlit secrets or environment variables.
+    """
+    # Pick a random scenario from the configured pool
+    scenario = pick_random_tow_scenario()
+    if not scenario:
+        # Nothing to post if there are no scenarios configured
+        return
+
+    # Use the default upcoming Wednesday
+    post_tow_call_to_arms_with_image(scenario)
 def uk_date_str(d: date) -> str:
     return d.strftime("%d/%m/%Y")
 

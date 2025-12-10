@@ -1672,7 +1672,7 @@ if "Weekly Pairings" in idx:
 
             edited = st.data_editor(
                 df_admin_pairs,
-                use_container_width=True,
+                width='stretch',
                 hide_index=True,
                 key="pairings_editor_admin",
                 column_config={
@@ -1682,21 +1682,34 @@ if "Weekly Pairings" in idx:
                         options=all_labels,
                         help="Choose which signup is player A",
                     ),
-                    "A Faction": st.column_config.TextColumn("A Faction", disabled=True),
+                    "A Faction": st.column_config.SelectboxColumn(
+                        "A Faction",
+                        options=(HH_FACTIONS_WITH_BLANK if sys_pick == "Horus Heresy" else PLACEHOLDER_FACTIONS_WITH_BLANK),
+                    ),
                     "A Type": st.column_config.TextColumn("A Type", disabled=True),
                     "B": st.column_config.SelectboxColumn(
                         "B",
                         options=[bye_label] + all_labels,
                         help="Choose which signup is player B (or BYE)",
                     ),
-                    "B Faction": st.column_config.TextColumn("B Faction", disabled=True),
+                    "B Faction": st.column_config.SelectboxColumn(
+                        "B Faction",
+                        options=(HH_FACTIONS_WITH_BLANK if sys_pick == "Horus Heresy" else PLACEHOLDER_FACTIONS_WITH_BLANK),
+                    ),
                     "B Type": st.column_config.TextColumn("B Type", disabled=True),
+                    "Type": st.column_config.SelectboxColumn(
+                        "Type",
+                        options=(["Standard", "Intro"] if sys_pick == "Horus Heresy" else ["Casual", "Competitive", "Intro", "Either"]),
+                    ),
                     "Status": st.column_config.SelectboxColumn(
                         "Status",
                         options=["pending", "played", "cancelled"],
                     ),
-                    "ETA": st.column_config.TextColumn("ETA", disabled=True),
-                    "Points": st.column_config.NumberColumn("Points", disabled=True),
+                    "ETA": st.column_config.SelectboxColumn(
+                        "ETA",
+                        options=[f"{h:02d}:{m:02d}" for h in [17, 18, 19] for m in [0, 15, 30, 45] if not (h == 19 and m > 30)],
+                    ),
+                    "Points": st.column_config.NumberColumn("Points"),
                 },
             )
 

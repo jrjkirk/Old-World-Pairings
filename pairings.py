@@ -91,9 +91,6 @@ HH_FACTIONS: List[str] = [
 ]
 HH_FACTIONS_WITH_BLANK: List[str] = ["— None —", *HH_FACTIONS]
 
-# Suggested T&T triples per (week, system), populated by pairing generation.
-TNT_SUGGESTIONS: Dict[Tuple[str, str], List[str]] = {}
-
 
 
 # --- TOW Weekly Scenario Pool -------------------------------------------------
@@ -281,7 +278,7 @@ class Signup(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    week: str  # DD/MM/YYYY (Wednesday id)
+    week: str  # DD/MM/YYYY (system game-day id; TOW = Wed, HH = Fri)
     system: str  # "TOW" | "Horus Heresy"
 
     # Player link (by name or id); we'll soft-link by player_id + denormalised name for resilience
@@ -773,6 +770,24 @@ def week_id_wed(d: date) -> str:
     wednesday = d + timedelta(days=offset)
     return uk_date_str(wednesday)
 
+
+
+def week_id_fri(d: date) -> str:
+    """Friday identifier (DD/MM/YYYY) for Horus Heresy."""
+    # 0 = Mon, 1 = Tue, ..., 4 = Fri
+    days_ahead = (4 - d.weekday()) % 7
+    friday = d + timedelta(days=days_ahead)
+    return uk_date_str(friday)
+
+def week_id_for_system(system: str, d: date | None = None) -> str:
+    """Per-system game-day week id: TOW uses Wednesday, HH uses Friday."""
+    if d is None:
+        d = date.today()
+    if system == "Horus Heresy":
+        return week_id_fri(d)
+    # Default to TOW behaviour
+    return week_id_wed(d)
+
 def parse_week_id(week_str: str) -> date:
     """Parse a week identifier like 'DD/MM/YYYY' into a date."""
     return datetime.strptime(week_str.strip(), "%d/%m/%Y").date()
@@ -843,7 +858,6 @@ def build_match_preference(su: Signup) -> Tuple[int,int,int]:
     return (vibe_w, exp_w, pts_bucket)
 
 def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed: bool = True, allow_tnt: bool = True) -> List[Pairing]:
-    TNT_SUGGESTIONS.pop((week, system), None)
     with Session(engine) as s:
         # Load candidates
         rows = s.exec(select(Signup).where(
@@ -903,6 +917,19 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
             candidates = [m for m in candidates if m.key not in used_intro]
 
         candidates.sort(key=lambda m: (m.preference, m.key))
+        # If T&T grouping is enabled and we have an odd number of candidates,
+        # and at least three players have opted into Triumph & Treachery, bias
+        # the eventual BYE towards a T&T-capable player. This keeps the odd
+        # player as someone who is happy to be folded into a 3-way game.
+        if allow_tnt and system == "TOW" and (len(candidates) % 2 == 1):
+            tnt_pool = [m for m in candidates if getattr(m.row, "tnt_ok", False)]
+            if len(tnt_pool) >= 3:
+                # Move one T&T player to the end of the list so the standard
+                # greedy matcher naturally leaves them unmatched if a BYE is
+                # required.
+                chosen = tnt_pool[-1]
+                candidates = [m for m in candidates if m.key != chosen.key] + [chosen]
+
 
         seen_pairs = previous_pairs_recent(system, week, max_weeks=2)
         used: Set[str] = set()
@@ -1036,21 +1063,6 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
                 s.add(p); s.commit(); s.refresh(p); out.append(p)
                 used.add(ms.key); used.add(other.key)
 
-        # --- T&T suggestion: if odd player count and enough T&T volunteers (TOW only) ---
-        if allow_tnt and system == "TOW":
-            total_players = len(latest_by_name)
-            if total_players % 2 == 1:
-                # Collect T&T-eligible signups (latest per name)
-                tnt_candidates = [su for su in latest_by_name.values() if su.tnt_ok]
-                if len(tnt_candidates) >= 3:
-                    # Prefer including any player who ended up as a BYE
-                    bye_ids = {p.a_signup_id for p in out if p.b_signup_id is None}
-                    tnt_candidates_sorted = sorted(
-                        tnt_candidates,
-                        key=lambda su: (0 if su.id in bye_ids else 1, su.created_at)
-                    )
-                    chosen = tnt_candidates_sorted[:3]
-                    TNT_SUGGESTIONS[(week, system)] = [c.player_name for c in chosen]
         return out
 
 # ===================== UI =====================
@@ -1064,7 +1076,7 @@ with st.sidebar:
     if not st.session_state.is_admin:
         with st.form("admin_unlock_form"):
             pw = st.text_input("Admin password", type="password")
-            submitted = st.form_submit_button("Unlock admin", use_container_width=True)
+            submitted = st.form_submit_button("Unlock admin", width='stretch')
         if submitted:
             if pw == ADMIN_PASSWORD:
                 st.session_state.is_admin = True
@@ -1073,7 +1085,7 @@ with st.sidebar:
                 st.error("Incorrect password.")
     else:
         st.success("Admin mode active")
-        if st.button("Lock", use_container_width=True):
+        if st.button("Lock", width='stretch'):
             st.session_state.is_admin = False
             st.rerun()
         # DB download if SQLite
@@ -1081,7 +1093,7 @@ with st.sidebar:
             try:
                 with open(DB_PATH, "rb") as f:
                     data = f.read()
-                st.download_button("Download DB", data=data, file_name=DB_PATH, mime="application/octet-stream", use_container_width=True)
+                st.download_button("Download DB", data=data, file_name=DB_PATH, mime="application/octet-stream", width='stretch')
             except Exception:
                 pass
 
@@ -1111,13 +1123,18 @@ idx = {name:i for i,name in enumerate(order)}
 with T[idx["Call to Arms"]]:
     st.subheader("Join this week's games")
 
-    # default week id = this week's Wednesday
-    week_default = week_id_wed(date.today())
-    c1, c2 = st.columns([2,1])
+    c1, c2 = st.columns([1,2])
     with c1:
-        week_val = st.text_input("Week (Wednesday id, DD/MM/YYYY)", value=week_default, help="We use the Wednesday of the week as the ID.")
-    with c2:
         system = st.selectbox("System", SYSTEMS, index=0)
+
+    with c2:
+        week_default = week_id_for_system(system, date.today())
+        week_val = st.text_input(
+            "Week (DD/MM/YYYY)",
+            value=week_default,
+            key=f"cta_week_{system}",
+            help="TOW uses Wednesday; Horus Heresy uses Friday as the week id."
+        )
 
     st.divider()
     # --- Player pick or create (first+last only) ---
@@ -1321,8 +1338,15 @@ with T[idx["Call to Arms"]]:
 # --------------- Public: Pairings view ---------------
 with T[idx["Pairings"]]:
     st.subheader("Weekly Pairings")
-    week_lookup = st.text_input("Week (DD/MM/YYYY)", value=week_id_wed(date.today()))
+
     sys_pick = st.selectbox("System", SYSTEMS, index=0, key="pub_sys")
+
+    week_lookup = st.text_input(
+        "Week (DD/MM/YYYY)",
+        value=week_id_for_system(sys_pick, date.today()),
+        key=f"pub_week_{sys_pick}",
+        help="TOW uses the Wednesday date; Horus Heresy uses the Friday date."
+    )
 
     # Only show when published
     with Session(engine) as s:
@@ -1406,8 +1430,14 @@ with T[idx["Pairings"]]:
 if "Signups" in idx:
     with T[idx["Signups"]]:
         st.subheader("Browse Signups")
-        week_lookup = st.text_input("Week", value=week_id_wed(date.today()), key="adm_week_su")
         sys_pick = st.selectbox("System", SYSTEMS, index=0, key="adm_sys_su")
+
+        week_lookup = st.text_input(
+            "Week",
+            value=week_id_for_system(sys_pick, date.today()),
+            key=f"adm_week_su_{sys_pick}",
+            help="TOW = Wednesday date; Horus Heresy = Friday date."
+        )
         with Session(engine) as s:
             sus = s.exec(select(Signup).where((Signup.week == week_lookup) & (Signup.system == sys_pick)).order_by(Signup.created_at)).all()
         if not sus:
@@ -1483,11 +1513,17 @@ if "Signups" in idx:
 if "Generate Pairings" in idx:
     with T[idx["Generate Pairings"]]:
         st.subheader("Generate Weekly Pairings")
-        c1, c2 = st.columns([2,1])
+        c1, c2 = st.columns([1,2])
         with c1:
-            week_val = st.text_input("Week id", value=week_id_wed(date.today()), key="adm_week_gen")
-        with c2:
             sys_pick = st.selectbox("System", SYSTEMS, index=0, key="adm_sys_gen")
+
+        with c2:
+            week_val = st.text_input(
+                "Week id",
+                value=week_id_for_system(sys_pick, date.today()),
+                key=f"adm_week_gen_{sys_pick}",
+                help="Game-day id (TOW: Wednesday; Horus Heresy: Friday)."
+            )
 
         st.caption("Deletes existing **pending** pairings for that week+system before generating.")
         allow_repeats = st.checkbox("Allow rematches if necessary", value=True)
@@ -1505,9 +1541,6 @@ if "Generate Pairings" in idx:
                 st.success(f"Created {len(created)} pairing(s).")
             else:
                 st.info("No signups to pair.")
-            tnt_suggest = TNT_SUGGESTIONS.get((week_val, sys_pick))
-            if tnt_suggest:
-                st.info("Suggested T&T group: " + ", ".join(tnt_suggest) + ". You can use the manual 3-way merge below to coordinate a 3-way game.")
 
         st.divider(); st.subheader("Manual 3-way merge (optional)")
         with Session(engine) as s:
@@ -1558,8 +1591,14 @@ if "Generate Pairings" in idx:
 if "Weekly Pairings" in idx:
     with T[idx["Weekly Pairings"]]:
         st.subheader("Browse / Delete Pairings")
-        week_lookup = st.text_input("Week", value=week_id_wed(date.today()), key="adm_week_pairs")
         sys_pick = st.selectbox("System", SYSTEMS, index=0, key="adm_sys_pairs")
+
+        week_lookup = st.text_input(
+            "Week",
+            value=week_id_for_system(sys_pick, date.today()),
+            key=f"adm_week_pairs_{sys_pick}",
+            help="TOW = Wednesday date; Horus Heresy = Friday date."
+        )
 
         # Publish controls
         with Session(engine) as s:
@@ -1672,9 +1711,10 @@ if "Weekly Pairings" in idx:
                     "ID": p.id,
                     "A": _label_signup(a),
                     "A Faction": (p.a_faction or (a.faction if a else None)),
+                    "A Type": (a.vibe if a else None),
                     "B": (_label_signup(b) if b else bye_label),
                     "B Faction": ((p.b_faction or (b.faction if b else None)) if b else None),
-                    "Type": type_show,
+                    "B Type": ((b.vibe if b else None) if b else None),
                     "Status": p.status,
                     "ETA": eta_show,
                     "Points": pts_show,
@@ -1694,34 +1734,21 @@ if "Weekly Pairings" in idx:
                         options=all_labels,
                         help="Choose which signup is player A",
                     ),
-                    "A Faction": st.column_config.SelectboxColumn(
-                        "A Faction",
-                        options=(HH_FACTIONS_WITH_BLANK if sys_pick == "Horus Heresy" else PLACEHOLDER_FACTIONS_WITH_BLANK),
-                    ),
+                    "A Faction": st.column_config.TextColumn("A Faction", disabled=True),
                     "A Type": st.column_config.TextColumn("A Type", disabled=True),
                     "B": st.column_config.SelectboxColumn(
                         "B",
                         options=[bye_label] + all_labels,
                         help="Choose which signup is player B (or BYE)",
                     ),
-                    "B Faction": st.column_config.SelectboxColumn(
-                        "B Faction",
-                        options=(HH_FACTIONS_WITH_BLANK if sys_pick == "Horus Heresy" else PLACEHOLDER_FACTIONS_WITH_BLANK),
-                    ),
+                    "B Faction": st.column_config.TextColumn("B Faction", disabled=True),
                     "B Type": st.column_config.TextColumn("B Type", disabled=True),
-                    "Type": st.column_config.SelectboxColumn(
-                        "Type",
-                        options=(["Standard", "Intro"] if sys_pick == "Horus Heresy" else ["Casual", "Competitive", "Intro", "Either"]),
-                    ),
                     "Status": st.column_config.SelectboxColumn(
                         "Status",
                         options=["pending", "played", "cancelled"],
                     ),
-                    "ETA": st.column_config.SelectboxColumn(
-                        "ETA",
-                        options=[f"{h:02d}:{m:02d}" for h in [17, 18, 19] for m in [0, 15, 30, 45] if not (h == 19 and m > 30)],
-                    ),
-                    "Points": st.column_config.NumberColumn("Points"),
+                    "ETA": st.column_config.TextColumn("ETA", disabled=True),
+                    "Points": st.column_config.NumberColumn("Points", disabled=True),
                 },
             )
 
@@ -1749,74 +1776,23 @@ if "Weekly Pairings" in idx:
                         new_a_id = parse_signup_id(row["A"])
                         new_b_id = parse_signup_id(row["B"])
                         new_status = row["Status"]
-                        new_type = row["Type"] if "Type" in row else None
-                        new_eta = row["ETA"] if "ETA" in row else None
-                        new_pts_raw = row["Points"] if "Points" in row else None
 
-                        # Normalise points
-                        new_pts = None
-                        try:
-                            if new_pts_raw is not None and str(new_pts_raw) != "" and not (isinstance(new_pts_raw, float) and math.isnan(new_pts_raw)):
-                                new_pts = int(new_pts_raw)
-                        except Exception:
-                            new_pts = None
+                        if (
+                            p.a_signup_id != new_a_id
+                            or p.b_signup_id != new_b_id
+                            or p.status != new_status
+                        ):
+                            p.a_signup_id = new_a_id
+                            p.b_signup_id = new_b_id
+                            p.status = new_status
 
-                        new_a_faction = row.get("A Faction")
-                        new_b_faction = row.get("B Faction")
+                            a_su = s.get(Signup, new_a_id) if new_a_id else None
+                            b_su = s.get(Signup, new_b_id) if new_b_id else None
+                            p.a_faction = a_su.faction if a_su else None
+                            p.b_faction = b_su.faction if b_su else None
 
-                        p.a_signup_id = new_a_id
-                        p.b_signup_id = new_b_id
-                        p.status = new_status
-
-                        a_su = s.get(Signup, new_a_id) if new_a_id else None
-                        b_su = s.get(Signup, new_b_id) if new_b_id else None
-
-                        # Factions: prefer edited dropdown, sync back to Signup
-                        if a_su:
-                            if pd.notna(new_a_faction):
-                                a_su.faction = None if new_a_faction == "— None —" else str(new_a_faction)
-                            p.a_faction = a_su.faction
-                            s.add(a_su)
-                        else:
-                            p.a_faction = None
-
-                        if b_su:
-                            if pd.notna(new_b_faction):
-                                b_su.faction = None if new_b_faction == "— None —" else str(new_b_faction)
-                            p.b_faction = b_su.faction
-                            s.add(b_su)
-                        else:
-                            p.b_faction = None
-
-                        # Type: write back to both players' vibes (if present)
-                        if new_type:
-                            if a_su:
-                                a_su.vibe = new_type
-                                s.add(a_su)
-                            if b_su:
-                                b_su.vibe = new_type
-                                s.add(b_su)
-
-                        # ETA: write back to both players
-                        if new_eta:
-                            if a_su:
-                                a_su.eta = new_eta
-                                s.add(a_su)
-                            if b_su:
-                                b_su.eta = new_eta
-                                s.add(b_su)
-
-                        # Points: write back to both players
-                        if new_pts is not None:
-                            if a_su:
-                                a_su.points = new_pts
-                                s.add(a_su)
-                            if b_su:
-                                b_su.points = new_pts
-                                s.add(b_su)
-
-                        s.add(p)
-                        changed += 1
+                            s.add(p)
+                            changed += 1
 
                     if changed:
                         s.commit()
@@ -1925,7 +1901,7 @@ if "View History" in idx:
             df = pd.DataFrame(rows)
             st.dataframe(df, width='stretch', hide_index=True)
             csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button("Download history as CSV", data=csv, file_name="pairings_history.csv", mime="text/csv", use_container_width=True)
+            st.download_button("Download history as CSV", data=csv, file_name="pairings_history.csv", mime="text/csv", width='stretch')
 
 # --------------- Admin: Call to Arms Post ---------------
 if "Call to Arms Post" in idx:
@@ -1970,7 +1946,7 @@ if "Call to Arms Post" in idx:
                 f"**Secondary Objectives:** {scenario_for_preview['secondary_objectives']}"
             )
 
-        if st.button("Post TOW Call to Arms to Discord now", type="primary", use_container_width=True):
+        if st.button("Post TOW Call to Arms to Discord now", type="primary", width='stretch'):
             if not DISCORD_CALL_TO_ARMS_WEBHOOK_URL:
                 st.error("DISCORD_CALL_TO_ARMS_WEBHOOK_URL is not configured; cannot post to Discord.")
             else:

@@ -770,7 +770,7 @@ def uk_date_str(d: date) -> str:
     return d.strftime("%d/%m/%Y")
 
 def week_id_wed(d: date) -> str:
-    # Wednesday identifier (DD/MM/YYYY) for TOW
+    # Wednesday identifier (DD/MM/YYYY)
     # From Saturday onwards, treat as next week
     if d.weekday() >= 5:  # 5 = Saturday, 6 = Sunday
         # Jump to next Monday
@@ -779,6 +779,8 @@ def week_id_wed(d: date) -> str:
     offset = 2 - d.weekday()  # 2 = Wednesday
     wednesday = d + timedelta(days=offset)
     return uk_date_str(wednesday)
+
+
 
 def week_id_fri(d: date) -> str:
     """Friday identifier (DD/MM/YYYY) for Horus Heresy."""
@@ -1127,6 +1129,7 @@ with T[idx["Call to Arms"]]:
         week_val = st.text_input(
             "Week (DD/MM/YYYY)",
             value=week_default,
+            key=f"pub_week_{system}",
             help="TOW uses Wednesday; Horus Heresy uses Friday as the week id."
         )
 
@@ -1338,7 +1341,7 @@ with T[idx["Pairings"]]:
     week_lookup = st.text_input(
         "Week (DD/MM/YYYY)",
         value=week_id_for_system(sys_pick, date.today()),
-        key="pub_week",
+        key=f"pub_week_{sys_pick}",
         help="TOW uses the Wednesday date; Horus Heresy uses the Friday date."
     )
 
@@ -1429,7 +1432,7 @@ if "Signups" in idx:
         week_lookup = st.text_input(
             "Week",
             value=week_id_for_system(sys_pick, date.today()),
-            key="adm_week_su",
+            key=f"adm_week_su_{sys_pick}",
             help="TOW = Wednesday date; Horus Heresy = Friday date."
         )
         with Session(engine) as s:
@@ -1515,7 +1518,7 @@ if "Generate Pairings" in idx:
             week_val = st.text_input(
                 "Week id",
                 value=week_id_for_system(sys_pick, date.today()),
-                key="adm_week_gen",
+                key=f"adm_week_gen_{sys_pick}",
                 help="Game-day id (TOW: Wednesday; Horus Heresy: Friday)."
             )
 
@@ -1590,7 +1593,7 @@ if "Weekly Pairings" in idx:
         week_lookup = st.text_input(
             "Week",
             value=week_id_for_system(sys_pick, date.today()),
-            key="adm_week_pairs",
+            key=f"adm_week_pairs_{sys_pick}",
             help="TOW = Wednesday date; Horus Heresy = Friday date."
         )
 

@@ -26,6 +26,7 @@ def _get_secret(name: str, default=None):
 
 from sqlmodel import SQLModel, Field, create_engine, Session, select
 from sqlalchemy.pool import NullPool
+from sqlalchemy import inspect
 
 # ===================== Config & State =====================
 
@@ -322,7 +323,6 @@ class Pairing(SQLModel, table=True):
 
     a_faction: Optional[str] = None
     b_faction: Optional[str] = None
-
     override_type: Optional[str] = None
     override_eta: Optional[str] = None
     override_points: Optional[int] = None
@@ -347,9 +347,30 @@ def get_engine():
 
 engine = get_engine()
 
+def _ensure_pairing_override_columns() -> None:
+    """Best-effort migration to add override_* columns to existing 'pairings' table.
+    This keeps older databases working without manual schema changes.
+    """
+    try:
+        with engine.begin() as conn:
+            insp = inspect(conn)
+            if "pairings" not in insp.get_table_names():
+                return
+            cols = {c["name"] for c in insp.get_columns("pairings")}
+            if "override_type" not in cols:
+                conn.exec_driver_sql("ALTER TABLE pairings ADD COLUMN override_type VARCHAR")
+            if "override_eta" not in cols:
+                conn.exec_driver_sql("ALTER TABLE pairings ADD COLUMN override_eta VARCHAR")
+            if "override_points" not in cols:
+                conn.exec_driver_sql("ALTER TABLE pairings ADD COLUMN override_points INTEGER")
+    except Exception:
+        # Never crash the app from a best-effort migration.
+        return
+
 @st.cache_resource
 def init_db():
     SQLModel.metadata.create_all(engine)
+    _ensure_pairing_override_columns()
     return True
 
 _ = init_db()

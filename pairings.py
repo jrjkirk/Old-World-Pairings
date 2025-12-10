@@ -266,7 +266,7 @@ class WeekLock(SQLModel, table=True):
     __tablename__ = "week_locks"
     __table_args__ = {"extend_existing": True}
     id: Optional[int] = Field(default=None, primary_key=True)
-    week: str  # DD/MM/YYYY (Wednesday id)
+    week: str  # DD/MM/YYYY (system game-day id; TOW = Wed, HH = Fri)
     system: str  # one of SYSTEMS
     password: str
 
@@ -288,7 +288,7 @@ class Signup(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    week: str  # DD/MM/YYYY (Wednesday id)
+    week: str  # DD/MM/YYYY (system game-day id; TOW = Wed, HH = Fri)
     system: str  # "TOW" | "Horus Heresy"
 
     # Player link (by name or id); we'll soft-link by player_id + denormalised name for resilience
@@ -770,7 +770,7 @@ def uk_date_str(d: date) -> str:
     return d.strftime("%d/%m/%Y")
 
 def week_id_wed(d: date) -> str:
-    # Wednesday identifier (DD/MM/YYYY)
+    # Wednesday identifier (DD/MM/YYYY) for TOW
     # From Saturday onwards, treat as next week
     if d.weekday() >= 5:  # 5 = Saturday, 6 = Sunday
         # Jump to next Monday
@@ -779,6 +779,22 @@ def week_id_wed(d: date) -> str:
     offset = 2 - d.weekday()  # 2 = Wednesday
     wednesday = d + timedelta(days=offset)
     return uk_date_str(wednesday)
+
+def week_id_fri(d: date) -> str:
+    """Friday identifier (DD/MM/YYYY) for Horus Heresy."""
+    # 0 = Mon, 1 = Tue, ..., 4 = Fri
+    days_ahead = (4 - d.weekday()) % 7
+    friday = d + timedelta(days=days_ahead)
+    return uk_date_str(friday)
+
+def week_id_for_system(system: str, d: date | None = None) -> str:
+    """Per-system game-day week id: TOW uses Wednesday, HH uses Friday."""
+    if d is None:
+        d = date.today()
+    if system == "Horus Heresy":
+        return week_id_fri(d)
+    # Default to TOW behaviour
+    return week_id_wed(d)
 
 def parse_week_id(week_str: str) -> date:
     """Parse a week identifier like 'DD/MM/YYYY' into a date."""
@@ -1102,13 +1118,17 @@ idx = {name:i for i,name in enumerate(order)}
 with T[idx["Call to Arms"]]:
     st.subheader("Join this week's games")
 
-    # default week id = this week's Wednesday
-    week_default = week_id_wed(date.today())
-    c1, c2 = st.columns([2,1])
+    c1, c2 = st.columns([1,2])
     with c1:
-        week_val = st.text_input("Week (Wednesday id, DD/MM/YYYY)", value=week_default, help="We use the Wednesday of the week as the ID.")
-    with c2:
         system = st.selectbox("System", SYSTEMS, index=0)
+
+    with c2:
+        week_default = week_id_for_system(system, date.today())
+        week_val = st.text_input(
+            "Week (DD/MM/YYYY)",
+            value=week_default,
+            help="TOW uses Wednesday; Horus Heresy uses Friday as the week id."
+        )
 
     st.divider()
     # --- Player pick or create (first+last only) ---
@@ -1312,8 +1332,15 @@ with T[idx["Call to Arms"]]:
 # --------------- Public: Pairings view ---------------
 with T[idx["Pairings"]]:
     st.subheader("Weekly Pairings")
-    week_lookup = st.text_input("Week (DD/MM/YYYY)", value=week_id_wed(date.today()))
+
     sys_pick = st.selectbox("System", SYSTEMS, index=0, key="pub_sys")
+
+    week_lookup = st.text_input(
+        "Week (DD/MM/YYYY)",
+        value=week_id_for_system(sys_pick, date.today()),
+        key="pub_week",
+        help="TOW uses the Wednesday date; Horus Heresy uses the Friday date."
+    )
 
     # Only show when published
     with Session(engine) as s:
@@ -1397,8 +1424,14 @@ with T[idx["Pairings"]]:
 if "Signups" in idx:
     with T[idx["Signups"]]:
         st.subheader("Browse Signups")
-        week_lookup = st.text_input("Week", value=week_id_wed(date.today()), key="adm_week_su")
         sys_pick = st.selectbox("System", SYSTEMS, index=0, key="adm_sys_su")
+
+        week_lookup = st.text_input(
+            "Week",
+            value=week_id_for_system(sys_pick, date.today()),
+            key="adm_week_su",
+            help="TOW = Wednesday date; Horus Heresy = Friday date."
+        )
         with Session(engine) as s:
             sus = s.exec(select(Signup).where((Signup.week == week_lookup) & (Signup.system == sys_pick)).order_by(Signup.created_at)).all()
         if not sus:
@@ -1474,11 +1507,17 @@ if "Signups" in idx:
 if "Generate Pairings" in idx:
     with T[idx["Generate Pairings"]]:
         st.subheader("Generate Weekly Pairings")
-        c1, c2 = st.columns([2,1])
+        c1, c2 = st.columns([1,2])
         with c1:
-            week_val = st.text_input("Week id", value=week_id_wed(date.today()), key="adm_week_gen")
-        with c2:
             sys_pick = st.selectbox("System", SYSTEMS, index=0, key="adm_sys_gen")
+
+        with c2:
+            week_val = st.text_input(
+                "Week id",
+                value=week_id_for_system(sys_pick, date.today()),
+                key="adm_week_gen",
+                help="Game-day id (TOW: Wednesday; Horus Heresy: Friday)."
+            )
 
         st.caption("Deletes existing **pending** pairings for that week+system before generating.")
         allow_repeats = st.checkbox("Allow rematches if necessary", value=True)
@@ -1546,8 +1585,14 @@ if "Generate Pairings" in idx:
 if "Weekly Pairings" in idx:
     with T[idx["Weekly Pairings"]]:
         st.subheader("Browse / Delete Pairings")
-        week_lookup = st.text_input("Week", value=week_id_wed(date.today()), key="adm_week_pairs")
         sys_pick = st.selectbox("System", SYSTEMS, index=0, key="adm_sys_pairs")
+
+        week_lookup = st.text_input(
+            "Week",
+            value=week_id_for_system(sys_pick, date.today()),
+            key="adm_week_pairs",
+            help="TOW = Wednesday date; Horus Heresy = Friday date."
+        )
 
         # Publish controls
         with Session(engine) as s:

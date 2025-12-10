@@ -266,7 +266,7 @@ class WeekLock(SQLModel, table=True):
     __tablename__ = "week_locks"
     __table_args__ = {"extend_existing": True}
     id: Optional[int] = Field(default=None, primary_key=True)
-    week: str  # DD/MM/YYYY (system game-day id; TOW = Wed, HH = Fri)
+    week: str  # DD/MM/YYYY (Wednesday id)
     system: str  # one of SYSTEMS
     password: str
 
@@ -288,7 +288,7 @@ class Signup(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    week: str  # DD/MM/YYYY (system game-day id; TOW = Wed, HH = Fri)
+    week: str  # DD/MM/YYYY (Wednesday id)
     system: str  # "TOW" | "Horus Heresy"
 
     # Player link (by name or id); we'll soft-link by player_id + denormalised name for resilience
@@ -322,6 +322,10 @@ class Pairing(SQLModel, table=True):
 
     a_faction: Optional[str] = None
     b_faction: Optional[str] = None
+
+    override_type: Optional[str] = None
+    override_eta: Optional[str] = None
+    override_points: Optional[int] = None
 
 # ---- Engine ----
 @st.cache_resource
@@ -780,24 +784,6 @@ def week_id_wed(d: date) -> str:
     wednesday = d + timedelta(days=offset)
     return uk_date_str(wednesday)
 
-
-
-def week_id_fri(d: date) -> str:
-    """Friday identifier (DD/MM/YYYY) for Horus Heresy."""
-    # 0 = Mon, 1 = Tue, ..., 4 = Fri
-    days_ahead = (4 - d.weekday()) % 7
-    friday = d + timedelta(days=days_ahead)
-    return uk_date_str(friday)
-
-def week_id_for_system(system: str, d: date | None = None) -> str:
-    """Per-system game-day week id: TOW uses Wednesday, HH uses Friday."""
-    if d is None:
-        d = date.today()
-    if system == "Horus Heresy":
-        return week_id_fri(d)
-    # Default to TOW behaviour
-    return week_id_wed(d)
-
 def parse_week_id(week_str: str) -> date:
     """Parse a week identifier like 'DD/MM/YYYY' into a date."""
     return datetime.strptime(week_str.strip(), "%d/%m/%Y").date()
@@ -1120,18 +1106,13 @@ idx = {name:i for i,name in enumerate(order)}
 with T[idx["Call to Arms"]]:
     st.subheader("Join this week's games")
 
-    c1, c2 = st.columns([1,2])
+    # default week id = this week's Wednesday
+    week_default = week_id_wed(date.today())
+    c1, c2 = st.columns([2,1])
     with c1:
-        system = st.selectbox("System", SYSTEMS, index=0)
-
+        week_val = st.text_input("Week (Wednesday id, DD/MM/YYYY)", value=week_default, help="We use the Wednesday of the week as the ID.")
     with c2:
-        week_default = week_id_for_system(system, date.today())
-        week_val = st.text_input(
-            "Week (DD/MM/YYYY)",
-            value=week_default,
-            key=f"cta_week_{system}",
-            help="TOW uses Wednesday; Horus Heresy uses Friday as the week id."
-        )
+        system = st.selectbox("System", SYSTEMS, index=0)
 
     st.divider()
     # --- Player pick or create (first+last only) ---
@@ -1335,15 +1316,8 @@ with T[idx["Call to Arms"]]:
 # --------------- Public: Pairings view ---------------
 with T[idx["Pairings"]]:
     st.subheader("Weekly Pairings")
-
+    week_lookup = st.text_input("Week (DD/MM/YYYY)", value=week_id_wed(date.today()))
     sys_pick = st.selectbox("System", SYSTEMS, index=0, key="pub_sys")
-
-    week_lookup = st.text_input(
-        "Week (DD/MM/YYYY)",
-        value=week_id_for_system(sys_pick, date.today()),
-        key=f"pub_week_{sys_pick}",
-        help="TOW uses the Wednesday date; Horus Heresy uses the Friday date."
-    )
 
     # Only show when published
     with Session(engine) as s:
@@ -1412,14 +1386,17 @@ with T[idx["Pairings"]]:
                         pts_vals.append(b.points)
                     pts_show = min(pts_vals) if pts_vals else None
 
+                    type_val = p.override_type or _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None))
+                    eta_val = p.override_eta or eta_show
+                    pts_val = p.override_points if p.override_points is not None else pts_show
                     rows.append({
                         "A": a.player_name if a else f"A#{p.a_signup_id}",
                         "Faction A": p.a_faction or (a.faction if a else None),
                         "B": (b.player_name if b else "— BYE / standby —"),
                         "Faction B": (p.b_faction or (b.faction if b else None) if b else None),
-                        "Type": _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None)),
-                        "ETA": eta_show,
-                        "Points": pts_show
+                        "Type": type_val,
+                        "ETA": eta_val,
+                        "Points": pts_val
                     })
             st.dataframe(rows, use_container_width=True, hide_index=True)
 
@@ -1427,14 +1404,8 @@ with T[idx["Pairings"]]:
 if "Signups" in idx:
     with T[idx["Signups"]]:
         st.subheader("Browse Signups")
+        week_lookup = st.text_input("Week", value=week_id_wed(date.today()), key="adm_week_su")
         sys_pick = st.selectbox("System", SYSTEMS, index=0, key="adm_sys_su")
-
-        week_lookup = st.text_input(
-            "Week",
-            value=week_id_for_system(sys_pick, date.today()),
-            key=f"adm_week_su_{sys_pick}",
-            help="TOW = Wednesday date; Horus Heresy = Friday date."
-        )
         with Session(engine) as s:
             sus = s.exec(select(Signup).where((Signup.week == week_lookup) & (Signup.system == sys_pick)).order_by(Signup.created_at)).all()
         if not sus:
@@ -1510,17 +1481,11 @@ if "Signups" in idx:
 if "Generate Pairings" in idx:
     with T[idx["Generate Pairings"]]:
         st.subheader("Generate Weekly Pairings")
-        c1, c2 = st.columns([1,2])
+        c1, c2 = st.columns([2,1])
         with c1:
-            sys_pick = st.selectbox("System", SYSTEMS, index=0, key="adm_sys_gen")
-
+            week_val = st.text_input("Week id", value=week_id_wed(date.today()), key="adm_week_gen")
         with c2:
-            week_val = st.text_input(
-                "Week id",
-                value=week_id_for_system(sys_pick, date.today()),
-                key=f"adm_week_gen_{sys_pick}",
-                help="Game-day id (TOW: Wednesday; Horus Heresy: Friday)."
-            )
+            sys_pick = st.selectbox("System", SYSTEMS, index=0, key="adm_sys_gen")
 
         st.caption("Deletes existing **pending** pairings for that week+system before generating.")
         allow_repeats = st.checkbox("Allow rematches if necessary", value=True)
@@ -1588,14 +1553,8 @@ if "Generate Pairings" in idx:
 if "Weekly Pairings" in idx:
     with T[idx["Weekly Pairings"]]:
         st.subheader("Browse / Delete Pairings")
+        week_lookup = st.text_input("Week", value=week_id_wed(date.today()), key="adm_week_pairs")
         sys_pick = st.selectbox("System", SYSTEMS, index=0, key="adm_sys_pairs")
-
-        week_lookup = st.text_input(
-            "Week",
-            value=week_id_for_system(sys_pick, date.today()),
-            key=f"adm_week_pairs_{sys_pick}",
-            help="TOW = Wednesday date; Horus Heresy = Friday date."
-        )
 
         # Publish controls
         with Session(engine) as s:
@@ -1694,14 +1653,17 @@ if "Weekly Pairings" in idx:
 
                 type_show = _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None))
 
+                type_val = p.override_type or type_show
+                eta_val = p.override_eta or eta_show
+                pts_val = p.override_points if p.override_points is not None else pts_show
                 public_rows_for_discord.append({
                     "A": a.player_name if a else f"A#{p.a_signup_id}",
                     "Faction A": (p.a_faction or (a.faction if a else None)),
                     "B": (b.player_name if b else "BYE"),
                     "Faction B": ((p.b_faction or (b.faction if b else None)) if b else None),
-                    "Type": type_show,
-                    "ETA": eta_show,
-                    "Points": pts_show,
+                    "Type": type_val,
+                    "ETA": eta_val,
+                    "Points": pts_val,
                 })
 
                 rows.append({
@@ -1713,8 +1675,8 @@ if "Weekly Pairings" in idx:
                     "B Faction": ((p.b_faction or (b.faction if b else None)) if b else None),
                     "B Type": ((b.vibe if b else None) if b else None),
                     "Status": p.status,
-                    "ETA": eta_show,
-                    "Points": pts_show,
+                    "ETA": eta_val,
+                    "Points": pts_val,
                 })
 
             df_admin_pairs = pd.DataFrame(rows)
@@ -1731,21 +1693,24 @@ if "Weekly Pairings" in idx:
                         options=all_labels,
                         help="Choose which signup is player A",
                     ),
-                    "A Faction": st.column_config.TextColumn("A Faction", disabled=True),
+                    "A Faction": st.column_config.SelectboxColumn("A Faction", options=(HH_FACTIONS_WITH_BLANK if sys_pick=="Horus Heresy" else PLACEHOLDER_FACTIONS_WITH_BLANK)),
                     "A Type": st.column_config.TextColumn("A Type", disabled=True),
                     "B": st.column_config.SelectboxColumn(
                         "B",
                         options=[bye_label] + all_labels,
                         help="Choose which signup is player B (or BYE)",
                     ),
-                    "B Faction": st.column_config.TextColumn("B Faction", disabled=True),
+                    "B Faction": st.column_config.SelectboxColumn("B Faction", options=(HH_FACTIONS_WITH_BLANK if sys_pick=="Horus Heresy" else PLACEHOLDER_FACTIONS_WITH_BLANK)),
                     "B Type": st.column_config.TextColumn("B Type", disabled=True),
+                    "Type": st.column_config.SelectboxColumn("Type", options=(["Standard","Intro"] if sys_pick=="Horus Heresy" else ["Casual","Competitive","Intro","Either"])),
+                    "ETA": st.column_config.SelectboxColumn("ETA", options=[f"{h:02d}:{m:02d}" for h in [17,18,19] for m in [0,15,30,45] if not (h==19 and m>30)]),
+                    "Points": st.column_config.TextColumn("Points"),
                     "Status": st.column_config.SelectboxColumn(
                         "Status",
                         options=["pending", "played", "cancelled"],
                     ),
-                    "ETA": st.column_config.TextColumn("ETA", disabled=True),
-                    "Points": st.column_config.NumberColumn("Points", disabled=True),
+                    
+                    
                 },
             )
 
@@ -1774,19 +1739,33 @@ if "Weekly Pairings" in idx:
                         new_b_id = parse_signup_id(row["B"])
                         new_status = row["Status"]
 
+                        new_type = row["Type"] if "Type" in row else None
+                        new_eta = row["ETA"] if "ETA" in row else None
+                        try:
+                            new_pts = int(str(row["Points"])) if ("Points" in row and pd.notna(row["Points"])) else None
+                        except Exception:
+                            new_pts = None
+
                         if (
                             p.a_signup_id != new_a_id
                             or p.b_signup_id != new_b_id
                             or p.status != new_status
+                            or p.a_faction != row["A Faction"]
+                            or p.b_faction != row["B Faction"]
+                            or p.override_type != new_type
+                            or p.override_eta != new_eta
+                            or p.override_points != new_pts
                         ):
                             p.a_signup_id = new_a_id
                             p.b_signup_id = new_b_id
                             p.status = new_status
 
-                            a_su = s.get(Signup, new_a_id) if new_a_id else None
-                            b_su = s.get(Signup, new_b_id) if new_b_id else None
-                            p.a_faction = a_su.faction if a_su else None
-                            p.b_faction = b_su.faction if b_su else None
+                            p.a_faction = row["A Faction"] if pd.notna(row["A Faction"]) else None
+                            p.b_faction = row["B Faction"] if pd.notna(row["B Faction"]) else None
+
+                            p.override_type = new_type
+                            p.override_eta = new_eta
+                            p.override_points = new_pts
 
                             s.add(p)
                             changed += 1
@@ -1878,6 +1857,9 @@ if "View History" in idx:
                         pts_vals.append(b.points)
                     pts_show = min(pts_vals) if pts_vals else None
 
+                    type_val = p.override_type or _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None))
+                    eta_val = p.override_eta or eta_show
+                    pts_val = p.override_points if p.override_points is not None else pts_show
                     rows.append({
                         "ID": p.id,
                         "Week": p.week,
@@ -1890,8 +1872,8 @@ if "View History" in idx:
                         "B Type": ((b.vibe if b else None) if b else None),
                         "Status": p.status,
                         "Table": p.table,
-                        "ETA": eta_show,
-                        "Points": pts_show,
+                        "ETA": eta_val,
+                        "Points": pts_val,
                     })
 
             import pandas as pd

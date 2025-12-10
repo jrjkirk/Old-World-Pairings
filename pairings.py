@@ -1415,12 +1415,19 @@ with T[idx["Pairings"]]:
                         pts_vals.append(b.points)
                     pts_show = min(pts_vals) if pts_vals else None
 
+                    # Determine public-facing Type, with cosmetic T&T override for suggested triples
+                    type_pub = _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None))
+                    tnt_names = set(TNT_SUGGESTIONS.get((week_lookup, sys_pick), []))
+                    if sys_pick == "TOW" and tnt_names:
+                        if (a and a.player_name in tnt_names) or (b and b.player_name in tnt_names):
+                            type_pub = "T&T"
+
                     rows.append({
                         "A": a.player_name if a else f"A#{p.a_signup_id}",
                         "Faction A": p.a_faction or (a.faction if a else None),
                         "B": (b.player_name if b else "— BYE / standby —"),
                         "Faction B": (p.b_faction or (b.faction if b else None) if b else None),
-                        "Type": _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None)),
+                        "Type": type_pub,
                         "ETA": eta_show,
                         "Points": pts_show
                     })
@@ -1695,7 +1702,12 @@ if "Weekly Pairings" in idx:
 
               
 
+                # Determine public-facing Type, with cosmetic T&T override for suggested triples
                 type_show = _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None))
+                tnt_names = set(TNT_SUGGESTIONS.get((week_lookup, sys_pick), []))
+                if sys_pick == "TOW" and tnt_names:
+                    if (a and a.player_name in tnt_names) or (b and b.player_name in tnt_names):
+                        type_show = "T&T"
 
                 public_rows_for_discord.append({
                     "A": a.player_name if a else f"A#{p.a_signup_id}",

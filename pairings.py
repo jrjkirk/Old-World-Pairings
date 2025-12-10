@@ -26,7 +26,6 @@ def _get_secret(name: str, default=None):
 
 from sqlmodel import SQLModel, Field, create_engine, Session, select
 from sqlalchemy.pool import NullPool
-from sqlalchemy import inspect
 
 # ===================== Config & State =====================
 
@@ -323,9 +322,6 @@ class Pairing(SQLModel, table=True):
 
     a_faction: Optional[str] = None
     b_faction: Optional[str] = None
-    override_type: Optional[str] = None
-    override_eta: Optional[str] = None
-    override_points: Optional[int] = None
 
 # ---- Engine ----
 @st.cache_resource
@@ -347,30 +343,9 @@ def get_engine():
 
 engine = get_engine()
 
-def _ensure_pairing_override_columns() -> None:
-    """Best-effort migration to add override_* columns to existing 'pairings' table.
-    This keeps older databases working without manual schema changes.
-    """
-    try:
-        with engine.begin() as conn:
-            insp = inspect(conn)
-            if "pairings" not in insp.get_table_names():
-                return
-            cols = {c["name"] for c in insp.get_columns("pairings")}
-            if "override_type" not in cols:
-                conn.exec_driver_sql("ALTER TABLE pairings ADD COLUMN override_type VARCHAR")
-            if "override_eta" not in cols:
-                conn.exec_driver_sql("ALTER TABLE pairings ADD COLUMN override_eta VARCHAR")
-            if "override_points" not in cols:
-                conn.exec_driver_sql("ALTER TABLE pairings ADD COLUMN override_points INTEGER")
-    except Exception:
-        # Never crash the app from a best-effort migration.
-        return
-
 @st.cache_resource
 def init_db():
     SQLModel.metadata.create_all(engine)
-    _ensure_pairing_override_columns()
     return True
 
 _ = init_db()
@@ -1407,17 +1382,14 @@ with T[idx["Pairings"]]:
                         pts_vals.append(b.points)
                     pts_show = min(pts_vals) if pts_vals else None
 
-                    type_val = p.override_type or _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None))
-                    eta_val = p.override_eta or eta_show
-                    pts_val = p.override_points if p.override_points is not None else pts_show
                     rows.append({
                         "A": a.player_name if a else f"A#{p.a_signup_id}",
                         "Faction A": p.a_faction or (a.faction if a else None),
                         "B": (b.player_name if b else "— BYE / standby —"),
                         "Faction B": (p.b_faction or (b.faction if b else None) if b else None),
-                        "Type": type_val,
-                        "ETA": eta_val,
-                        "Points": pts_val
+                        "Type": _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None)),
+                        "ETA": eta_show,
+                        "Points": pts_show
                     })
             st.dataframe(rows, use_container_width=True, hide_index=True)
 
@@ -1674,17 +1646,14 @@ if "Weekly Pairings" in idx:
 
                 type_show = _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None))
 
-                type_val = p.override_type or type_show
-                eta_val = p.override_eta or eta_show
-                pts_val = p.override_points if p.override_points is not None else pts_show
                 public_rows_for_discord.append({
                     "A": a.player_name if a else f"A#{p.a_signup_id}",
                     "Faction A": (p.a_faction or (a.faction if a else None)),
                     "B": (b.player_name if b else "BYE"),
                     "Faction B": ((p.b_faction or (b.faction if b else None)) if b else None),
-                    "Type": type_val,
-                    "ETA": eta_val,
-                    "Points": pts_val,
+                    "Type": type_show,
+                    "ETA": eta_show,
+                    "Points": pts_show,
                 })
 
                 rows.append({
@@ -1696,8 +1665,8 @@ if "Weekly Pairings" in idx:
                     "B Faction": ((p.b_faction or (b.faction if b else None)) if b else None),
                     "B Type": ((b.vibe if b else None) if b else None),
                     "Status": p.status,
-                    "ETA": eta_val,
-                    "Points": pts_val,
+                    "ETA": eta_show,
+                    "Points": pts_show,
                 })
 
             df_admin_pairs = pd.DataFrame(rows)
@@ -1714,24 +1683,21 @@ if "Weekly Pairings" in idx:
                         options=all_labels,
                         help="Choose which signup is player A",
                     ),
-                    "A Faction": st.column_config.SelectboxColumn("A Faction", options=(HH_FACTIONS_WITH_BLANK if sys_pick=="Horus Heresy" else PLACEHOLDER_FACTIONS_WITH_BLANK)),
+                    "A Faction": st.column_config.TextColumn("A Faction", disabled=True),
                     "A Type": st.column_config.TextColumn("A Type", disabled=True),
                     "B": st.column_config.SelectboxColumn(
                         "B",
                         options=[bye_label] + all_labels,
                         help="Choose which signup is player B (or BYE)",
                     ),
-                    "B Faction": st.column_config.SelectboxColumn("B Faction", options=(HH_FACTIONS_WITH_BLANK if sys_pick=="Horus Heresy" else PLACEHOLDER_FACTIONS_WITH_BLANK)),
+                    "B Faction": st.column_config.TextColumn("B Faction", disabled=True),
                     "B Type": st.column_config.TextColumn("B Type", disabled=True),
-                    "Type": st.column_config.SelectboxColumn("Type", options=(["Standard","Intro"] if sys_pick=="Horus Heresy" else ["Casual","Competitive","Intro","Either"])),
-                    "ETA": st.column_config.SelectboxColumn("ETA", options=[f"{h:02d}:{m:02d}" for h in [17,18,19] for m in [0,15,30,45] if not (h==19 and m>30)]),
-                    "Points": st.column_config.TextColumn("Points"),
                     "Status": st.column_config.SelectboxColumn(
                         "Status",
                         options=["pending", "played", "cancelled"],
                     ),
-                    
-                    
+                    "ETA": st.column_config.TextColumn("ETA", disabled=True),
+                    "Points": st.column_config.NumberColumn("Points", disabled=True),
                 },
             )
 
@@ -1760,33 +1726,19 @@ if "Weekly Pairings" in idx:
                         new_b_id = parse_signup_id(row["B"])
                         new_status = row["Status"]
 
-                        new_type = row["Type"] if "Type" in row else None
-                        new_eta = row["ETA"] if "ETA" in row else None
-                        try:
-                            new_pts = int(str(row["Points"])) if ("Points" in row and pd.notna(row["Points"])) else None
-                        except Exception:
-                            new_pts = None
-
                         if (
                             p.a_signup_id != new_a_id
                             or p.b_signup_id != new_b_id
                             or p.status != new_status
-                            or p.a_faction != row["A Faction"]
-                            or p.b_faction != row["B Faction"]
-                            or p.override_type != new_type
-                            or p.override_eta != new_eta
-                            or p.override_points != new_pts
                         ):
                             p.a_signup_id = new_a_id
                             p.b_signup_id = new_b_id
                             p.status = new_status
 
-                            p.a_faction = row["A Faction"] if pd.notna(row["A Faction"]) else None
-                            p.b_faction = row["B Faction"] if pd.notna(row["B Faction"]) else None
-
-                            p.override_type = new_type
-                            p.override_eta = new_eta
-                            p.override_points = new_pts
+                            a_su = s.get(Signup, new_a_id) if new_a_id else None
+                            b_su = s.get(Signup, new_b_id) if new_b_id else None
+                            p.a_faction = a_su.faction if a_su else None
+                            p.b_faction = b_su.faction if b_su else None
 
                             s.add(p)
                             changed += 1
@@ -1878,9 +1830,6 @@ if "View History" in idx:
                         pts_vals.append(b.points)
                     pts_show = min(pts_vals) if pts_vals else None
 
-                    type_val = p.override_type or _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None))
-                    eta_val = p.override_eta or eta_show
-                    pts_val = p.override_points if p.override_points is not None else pts_show
                     rows.append({
                         "ID": p.id,
                         "Week": p.week,
@@ -1893,8 +1842,8 @@ if "View History" in idx:
                         "B Type": ((b.vibe if b else None) if b else None),
                         "Status": p.status,
                         "Table": p.table,
-                        "ETA": eta_val,
-                        "Points": pts_val,
+                        "ETA": eta_show,
+                        "Points": pts_show,
                     })
 
             import pandas as pd

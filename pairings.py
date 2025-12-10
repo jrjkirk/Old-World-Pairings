@@ -91,6 +91,9 @@ HH_FACTIONS: List[str] = [
 ]
 HH_FACTIONS_WITH_BLANK: List[str] = ["— None —", *HH_FACTIONS]
 
+# Suggested T&T triples per (week, system), populated by pairing generation.
+TNT_SUGGESTIONS: Dict[Tuple[str, str], List[str]] = {}
+
 
 
 # --- TOW Weekly Scenario Pool -------------------------------------------------
@@ -260,16 +263,6 @@ class Player(SQLModel, table=True):
     default_faction: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     active: bool = True
-
-class WeekLock(SQLModel, table=True):
-    """Optional: lock a week+system behind a password (for result submissions/edit)."""
-    __tablename__ = "week_locks"
-    __table_args__ = {"extend_existing": True}
-    id: Optional[int] = Field(default=None, primary_key=True)
-    week: str  # DD/MM/YYYY (Wednesday id)
-    system: str  # one of SYSTEMS
-    password: str
-
 
 class PublishState(SQLModel, table=True):
     """Per-week/system publish gate for public view."""
@@ -850,6 +843,7 @@ def build_match_preference(su: Signup) -> Tuple[int,int,int]:
     return (vibe_w, exp_w, pts_bucket)
 
 def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed: bool = True, allow_tnt: bool = True) -> List[Pairing]:
+    TNT_SUGGESTIONS.pop((week, system), None)
     with Session(engine) as s:
         # Load candidates
         rows = s.exec(select(Signup).where(
@@ -992,7 +986,7 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
                 eta_b = _eta_bucket_diff(ms.row, other.row)
                 scen_d = _scenario_diff_tow(ms.row, other.row, system)
                 mir = _mirror_flag(ms.row, other.row)
-                dist = (mir, scen_d, eta_b, dv, de, dp)
+                dist = (mir, eta_b, scen_d, dv, de, dp)
                 if dist < best_dist:
                     best_dist = dist
                     best_j = j
@@ -1015,7 +1009,7 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
                     eta_b = _eta_bucket_diff(ms.row, other.row)
                     scen_d = _scenario_diff_tow(ms.row, other.row, system)
                     mir = _mirror_flag(ms.row, other.row)
-                    dist = (mir, scen_d, eta_b, dv, de, dp)
+                    dist = (mir, eta_b, scen_d, dv, de, dp)
                     if dist < best_dist:
                         best_dist = dist
                         best_j = j
@@ -1042,6 +1036,21 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
                 s.add(p); s.commit(); s.refresh(p); out.append(p)
                 used.add(ms.key); used.add(other.key)
 
+        # --- T&T suggestion: if odd player count and enough T&T volunteers (TOW only) ---
+        if allow_tnt and system == "TOW":
+            total_players = len(latest_by_name)
+            if total_players % 2 == 1:
+                # Collect T&T-eligible signups (latest per name)
+                tnt_candidates = [su for su in latest_by_name.values() if su.tnt_ok]
+                if len(tnt_candidates) >= 3:
+                    # Prefer including any player who ended up as a BYE
+                    bye_ids = {p.a_signup_id for p in out if p.b_signup_id is None}
+                    tnt_candidates_sorted = sorted(
+                        tnt_candidates,
+                        key=lambda su: (0 if su.id in bye_ids else 1, su.created_at)
+                    )
+                    chosen = tnt_candidates_sorted[:3]
+                    TNT_SUGGESTIONS[(week, system)] = [c.player_name for c in chosen]
         return out
 
 # ===================== UI =====================
@@ -1391,7 +1400,7 @@ with T[idx["Pairings"]]:
                         "ETA": eta_show,
                         "Points": pts_show
                     })
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+            st.dataframe(rows, width='stretch', hide_index=True)
 
 # --------------- Admin: Signups ---------------
 if "Signups" in idx:
@@ -1424,7 +1433,7 @@ if "Signups" in idx:
             disabled_cols = ["ID", "Name", "Created"]
             edited = st.data_editor(
                 df,
-                use_container_width=True,
+                width='stretch',
                 hide_index=True,
                 disabled=disabled_cols,
                 key="signups_editor"
@@ -1496,6 +1505,9 @@ if "Generate Pairings" in idx:
                 st.success(f"Created {len(created)} pairing(s).")
             else:
                 st.info("No signups to pair.")
+            tnt_suggest = TNT_SUGGESTIONS.get((week_val, sys_pick))
+            if tnt_suggest:
+                st.info("Suggested T&T group: " + ", ".join(tnt_suggest) + ". You can use the manual 3-way merge below to coordinate a 3-way game.")
 
         st.divider(); st.subheader("Manual 3-way merge (optional)")
         with Session(engine) as s:
@@ -1911,7 +1923,7 @@ if "View History" in idx:
 
             import pandas as pd
             df = pd.DataFrame(rows)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width='stretch', hide_index=True)
             csv = df.to_csv(index=False).encode("utf-8")
             st.download_button("Download history as CSV", data=csv, file_name="pairings_history.csv", mime="text/csv", use_container_width=True)
 

@@ -1724,7 +1724,6 @@ if "Weekly Pairings" in idx:
                     "B": (_label_signup(b) if b else bye_label),
                     "B Faction": ((p.b_faction or (b.faction if b else None)) if b else None),
                     "B Type": ((b.vibe if b else None) if b else None),
-                    "Status": p.status,
                     "ETA": eta_show,
                     "Points": pts_show,
                 })
@@ -1747,7 +1746,10 @@ if "Weekly Pairings" in idx:
                         "A Faction",
                         options=(HH_FACTIONS_WITH_BLANK if sys_pick == "Horus Heresy" else PLACEHOLDER_FACTIONS_WITH_BLANK),
                     ),
-                    "A Type": st.column_config.TextColumn("A Type", disabled=True),
+                    "A Type": st.column_config.SelectboxColumn(
+                        "A Type",
+                        options=(["Standard", "Intro"] if sys_pick == "Horus Heresy" else ["Casual", "Competitive", "Intro", "Either"]),
+                    ),
                     "B": st.column_config.SelectboxColumn(
                         "B",
                         options=[bye_label] + all_labels,
@@ -1757,14 +1759,13 @@ if "Weekly Pairings" in idx:
                         "B Faction",
                         options=(HH_FACTIONS_WITH_BLANK if sys_pick == "Horus Heresy" else PLACEHOLDER_FACTIONS_WITH_BLANK),
                     ),
-                    "B Type": st.column_config.TextColumn("B Type", disabled=True),
+                    "B Type": st.column_config.SelectboxColumn(
+                        "B Type",
+                        options=(["Standard", "Intro"] if sys_pick == "Horus Heresy" else ["Casual", "Competitive", "Intro", "Either"]),
+                    ),
                     "Type": st.column_config.SelectboxColumn(
                         "Type",
                         options=(["Standard", "Intro"] if sys_pick == "Horus Heresy" else ["Casual", "Competitive", "Intro", "Either"]),
-                    ),
-                    "Status": st.column_config.SelectboxColumn(
-                        "Status",
-                        options=["pending", "played", "cancelled"],
                     ),
                     "ETA": st.column_config.SelectboxColumn(
                         "ETA",
@@ -1797,10 +1798,11 @@ if "Weekly Pairings" in idx:
 
                         new_a_id = parse_signup_id(row["A"])
                         new_b_id = parse_signup_id(row["B"])
-                        new_status = row["Status"]
                         new_type = row["Type"] if "Type" in row else None
                         new_eta = row["ETA"] if "ETA" in row else None
                         new_pts_raw = row["Points"] if "Points" in row else None
+                        new_a_type = row["A Type"] if "A Type" in row else None
+                        new_b_type = row["B Type"] if "B Type" in row else None
 
                         # Normalise points
                         new_pts = None
@@ -1815,7 +1817,6 @@ if "Weekly Pairings" in idx:
 
                         p.a_signup_id = new_a_id
                         p.b_signup_id = new_b_id
-                        p.status = new_status
 
                         a_su = s.get(Signup, new_a_id) if new_a_id else None
                         b_su = s.get(Signup, new_b_id) if new_b_id else None
@@ -1837,14 +1838,20 @@ if "Weekly Pairings" in idx:
                         else:
                             p.b_faction = None
 
-                        # Type: write back to both players' vibes (if present)
-                        if new_type:
-                            if a_su:
+                        # Types: prefer per-player A/B type if provided; fall back to shared Type
+                        if a_su:
+                            if "A Type" in row and pd.notna(new_a_type) and str(new_a_type).strip():
+                                a_su.vibe = str(new_a_type)
+                            elif new_type:
                                 a_su.vibe = new_type
-                                s.add(a_su)
-                            if b_su:
+                            s.add(a_su)
+
+                        if b_su:
+                            if "B Type" in row and pd.notna(new_b_type) and str(new_b_type).strip():
+                                b_su.vibe = str(new_b_type)
+                            elif new_type:
                                 b_su.vibe = new_type
-                                s.add(b_su)
+                            s.add(b_su)
 
                         # ETA: write back to both players
                         if new_eta:
@@ -1964,9 +1971,7 @@ if "View History" in idx:
                         "B": (b.player_name if b else ("BYE" if p.b_signup_id is None else f"B#{p.b_signup_id}")),
                         "B Faction": ((p.b_faction or (b.faction if b else None)) if b else None),
                         "B Type": ((b.vibe if b else None) if b else None),
-                        "Status": p.status,
-                        "Table": p.table,
-                        "ETA": eta_show,
+                            "ETA": eta_show,
                         "Points": pts_show,
                     })
 

@@ -39,9 +39,6 @@ LOGO_URL = _get_secret("LOGO_URL", "")
 LOGO_WIDTH = int(_get_secret("LOGO_WIDTH", 120))
 DATABASE_URL = _get_secret("DATABASE_URL")  # optional (Postgres); default local SQLite
 DB_PATH = "pairings_db.sqlite"
-
-
-
 LOGO_TOW_URL = _get_secret("TOW_LOGO_URL", "")
 LOGO_HH_URL = _get_secret("HH_LOGO_URL", "")
 HEADER_LOGO_WIDTH = int(_get_secret("HEADER_LOGO_WIDTH", 120))
@@ -53,7 +50,7 @@ DISCORD_SIGNUP_WEBHOOK_URL = _get_secret("DISCORD_SIGNUP_WEBHOOK_URL", "")
 DISCORD_CALL_TO_ARMS_WEBHOOK_URL = _get_secret("DISCORD_CALL_TO_ARMS_WEBHOOK_URL", "")
 DISCORD_PAIRINGS_WEBHOOK_URL = _get_secret("DISCORD_PAIRINGS_WEBHOOK_URL", "")
 SYSTEMS: List[str] = ["TOW", "Horus Heresy"]
-
+TNT_SUGGESTIONS = {}
 # Shared factions list can be tailored per-system later; re-using OW list as a baseline.
 PLACEHOLDER_FACTIONS: List[str] = [
     'Empire of Man', 'Dwarfen Mountain Holds', 'Kingdom of Bretonnia',

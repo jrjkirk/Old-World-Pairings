@@ -1743,21 +1743,34 @@ if "Weekly Pairings" in idx:
                         options=all_labels,
                         help="Choose which signup is player A",
                     ),
-                    "A Faction": st.column_config.TextColumn("A Faction", disabled=True),
+                    "A Faction": st.column_config.SelectboxColumn(
+                        "A Faction",
+                        options=(HH_FACTIONS_WITH_BLANK if sys_pick == "Horus Heresy" else PLACEHOLDER_FACTIONS_WITH_BLANK),
+                    ),
                     "A Type": st.column_config.TextColumn("A Type", disabled=True),
                     "B": st.column_config.SelectboxColumn(
                         "B",
                         options=[bye_label] + all_labels,
                         help="Choose which signup is player B (or BYE)",
                     ),
-                    "B Faction": st.column_config.TextColumn("B Faction", disabled=True),
+                    "B Faction": st.column_config.SelectboxColumn(
+                        "B Faction",
+                        options=(HH_FACTIONS_WITH_BLANK if sys_pick == "Horus Heresy" else PLACEHOLDER_FACTIONS_WITH_BLANK),
+                    ),
                     "B Type": st.column_config.TextColumn("B Type", disabled=True),
+                    "Type": st.column_config.SelectboxColumn(
+                        "Type",
+                        options=(["Standard", "Intro"] if sys_pick == "Horus Heresy" else ["Casual", "Competitive", "Intro", "Either"]),
+                    ),
                     "Status": st.column_config.SelectboxColumn(
                         "Status",
                         options=["pending", "played", "cancelled"],
                     ),
-                    "ETA": st.column_config.TextColumn("ETA", disabled=True),
-                    "Points": st.column_config.NumberColumn("Points", disabled=True),
+                    "ETA": st.column_config.SelectboxColumn(
+                        "ETA",
+                        options=[f"{h:02d}:{m:02d}" for h in [17, 18, 19] for m in [0, 15, 30, 45] if not (h == 19 and m > 30)],
+                    ),
+                    "Points": st.column_config.NumberColumn("Points"),
                 },
             )
 
@@ -1785,23 +1798,74 @@ if "Weekly Pairings" in idx:
                         new_a_id = parse_signup_id(row["A"])
                         new_b_id = parse_signup_id(row["B"])
                         new_status = row["Status"]
+                        new_type = row["Type"] if "Type" in row else None
+                        new_eta = row["ETA"] if "ETA" in row else None
+                        new_pts_raw = row["Points"] if "Points" in row else None
 
-                        if (
-                            p.a_signup_id != new_a_id
-                            or p.b_signup_id != new_b_id
-                            or p.status != new_status
-                        ):
-                            p.a_signup_id = new_a_id
-                            p.b_signup_id = new_b_id
-                            p.status = new_status
+                        # Normalise points
+                        new_pts = None
+                        try:
+                            if new_pts_raw is not None and str(new_pts_raw) != "" and not (isinstance(new_pts_raw, float) and math.isnan(new_pts_raw)):
+                                new_pts = int(new_pts_raw)
+                        except Exception:
+                            new_pts = None
 
-                            a_su = s.get(Signup, new_a_id) if new_a_id else None
-                            b_su = s.get(Signup, new_b_id) if new_b_id else None
-                            p.a_faction = a_su.faction if a_su else None
-                            p.b_faction = b_su.faction if b_su else None
+                        new_a_faction = row.get("A Faction")
+                        new_b_faction = row.get("B Faction")
 
-                            s.add(p)
-                            changed += 1
+                        p.a_signup_id = new_a_id
+                        p.b_signup_id = new_b_id
+                        p.status = new_status
+
+                        a_su = s.get(Signup, new_a_id) if new_a_id else None
+                        b_su = s.get(Signup, new_b_id) if new_b_id else None
+
+                        # Factions: prefer edited dropdown, sync back to Signup
+                        if a_su:
+                            if pd.notna(new_a_faction):
+                                a_su.faction = None if new_a_faction == "— None —" else str(new_a_faction)
+                            p.a_faction = a_su.faction
+                            s.add(a_su)
+                        else:
+                            p.a_faction = None
+
+                        if b_su:
+                            if pd.notna(new_b_faction):
+                                b_su.faction = None if new_b_faction == "— None —" else str(new_b_faction)
+                            p.b_faction = b_su.faction
+                            s.add(b_su)
+                        else:
+                            p.b_faction = None
+
+                        # Type: write back to both players' vibes (if present)
+                        if new_type:
+                            if a_su:
+                                a_su.vibe = new_type
+                                s.add(a_su)
+                            if b_su:
+                                b_su.vibe = new_type
+                                s.add(b_su)
+
+                        # ETA: write back to both players
+                        if new_eta:
+                            if a_su:
+                                a_su.eta = new_eta
+                                s.add(a_su)
+                            if b_su:
+                                b_su.eta = new_eta
+                                s.add(b_su)
+
+                        # Points: write back to both players
+                        if new_pts is not None:
+                            if a_su:
+                                a_su.points = new_pts
+                                s.add(a_su)
+                            if b_su:
+                                b_su.points = new_pts
+                                s.add(b_su)
+
+                        s.add(p)
+                        changed += 1
 
                     if changed:
                         s.commit()

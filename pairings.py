@@ -1308,6 +1308,17 @@ with T[idx["Call to Arms"]]:
     if not _is_new and selected_player_label and selected_player_label in _label_to_id:
         if st.button("Drop my signup for this week"):
             with Session(engine) as s:
+                # Block drops after pairings have been published for this week/system
+                gate = s.exec(
+                    select(PublishState).where(
+                        (PublishState.week == week_val.strip())
+                        & (PublishState.system == system)
+                    )
+                ).first()
+                if gate and gate.published:
+                    st.warning("Pairings have been published - Contact the session organiser if you need to drop out.")
+                    st.stop()
+
                 pid = _label_to_id[selected_player_label]
                 su_rows = s.exec(
                     select(Signup).where(
@@ -1412,17 +1423,12 @@ with T[idx["Pairings"]]:
                         pts_vals.append(b.points)
                     pts_show = min(pts_vals) if pts_vals else None
 
-                    # Determine public-facing Type.
-                    # If a Game Type override exists on the pairing, it takes precedence over all logic.
-                    manual_type = (p.table or "").strip()
-                    if manual_type:
-                        type_pub = manual_type
-                    else:
-                        type_pub = _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None))
-                        tnt_names = set(TNT_SUGGESTIONS.get((week_lookup, sys_pick), []))
-                        if sys_pick == "TOW" and tnt_names:
-                            if (a and a.player_name in tnt_names) or (b and b.player_name in tnt_names):
-                                type_pub = "T&T"
+                    # Determine public-facing Type, with cosmetic T&T override for suggested triples
+                    type_pub = _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None))
+                    tnt_names = set(TNT_SUGGESTIONS.get((week_lookup, sys_pick), []))
+                    if sys_pick == "TOW" and tnt_names:
+                        if (a and a.player_name in tnt_names) or (b and b.player_name in tnt_names):
+                            type_pub = "T&T"
 
                     rows.append({
                         "A": a.player_name if a else f"A#{p.a_signup_id}",
@@ -1704,17 +1710,12 @@ if "Weekly Pairings" in idx:
 
               
 
-                # Determine public-facing Type for preview/Discord.
-                # If a Game Type override exists on the pairing, it takes precedence over all logic.
-                manual_type = (p.table or "").strip()
-                if manual_type:
-                    type_show = manual_type
-                else:
-                    type_show = _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None))
-                    tnt_names = set(TNT_SUGGESTIONS.get((week_lookup, sys_pick), []))
-                    if sys_pick == "TOW" and tnt_names:
-                        if (a and a.player_name in tnt_names) or (b and b.player_name in tnt_names):
-                            type_show = "T&T"
+                # Determine public-facing Type, with cosmetic T&T override for suggested triples
+                type_show = _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None))
+                tnt_names = set(TNT_SUGGESTIONS.get((week_lookup, sys_pick), []))
+                if sys_pick == "TOW" and tnt_names:
+                    if (a and a.player_name in tnt_names) or (b and b.player_name in tnt_names):
+                        type_show = "T&T"
 
                 public_rows_for_discord.append({
                     "A": a.player_name if a else f"A#{p.a_signup_id}",
@@ -1735,7 +1736,6 @@ if "Weekly Pairings" in idx:
                     "B Faction": ((p.b_faction or (b.faction if b else None)) if b else None),
                     "B Type": ((b.vibe if b else None) if b else None),
                     "ETA": eta_show,
-                    "Game Type": type_show,
                     "Points": pts_show,
                 })
 
@@ -1782,10 +1782,6 @@ if "Weekly Pairings" in idx:
                         "ETA",
                         options=[f"{h:02d}:{m:02d}" for h in [17, 18, 19] for m in [0, 15, 30, 45] if not (h == 19 and m > 30)],
                     ),
-                    "Game Type": st.column_config.SelectboxColumn(
-                        "Game Type",
-                        options=(["Standard", "Intro", "T&T"] if sys_pick == "Horus Heresy" else ["Casual", "Competitive", "Intro", "Either", "T&T"]),
-                    ),
                     "Points": st.column_config.NumberColumn("Points"),
                 },
             )
@@ -1818,7 +1814,6 @@ if "Weekly Pairings" in idx:
                         new_pts_raw = row["Points"] if "Points" in row else None
                         new_a_type = row["A Type"] if "A Type" in row else None
                         new_b_type = row["B Type"] if "B Type" in row else None
-                        new_game_type = row["Game Type"] if "Game Type" in row else None
 
                         # Normalise points
                         new_pts = None
@@ -1837,41 +1832,55 @@ if "Weekly Pairings" in idx:
                         a_su = s.get(Signup, new_a_id) if new_a_id else None
                         b_su = s.get(Signup, new_b_id) if new_b_id else None
 
-                        # Factions: prefer edited dropdown, but DO NOT modify Signups; store on Pairing only
+                        # Factions: prefer edited dropdown, sync back to Signup
                         if a_su:
                             if pd.notna(new_a_faction):
-                                p.a_faction = None if new_a_faction == "— None —" else str(new_a_faction)
-                            else:
-                                p.a_faction = a_su.faction
+                                a_su.faction = None if new_a_faction == "— None —" else str(new_a_faction)
+                            p.a_faction = a_su.faction
+                            s.add(a_su)
                         else:
                             p.a_faction = None
 
                         if b_su:
                             if pd.notna(new_b_faction):
-                                p.b_faction = None if new_b_faction == "— None —" else str(new_b_faction)
-                            else:
-                                p.b_faction = b_su.faction
+                                b_su.faction = None if new_b_faction == "— None —" else str(new_b_faction)
+                            p.b_faction = b_su.faction
+                            s.add(b_su)
                         else:
                             p.b_faction = None
 
-                        # Game Type override: store per-pairing on p.table (does NOT touch Signups)
-                        if new_game_type is not None and str(new_game_type).strip():
-                            p.table = str(new_game_type).strip()
-                        else:
-                            p.table = None
+                        # Types: prefer per-player A/B type if provided; fall back to shared Type
+                        if a_su:
+                            if "A Type" in row and pd.notna(new_a_type) and str(new_a_type).strip():
+                                a_su.vibe = str(new_a_type)
+                            elif new_type:
+                                a_su.vibe = new_type
+                            s.add(a_su)
 
-                        # Types: Weekly Pairings no longer edits Signup.vibe.
-                        # Any game-type overrides for display are handled at the pairing level
-                        # (e.g., via per-pairing fields) and Signups remain fixed unless edited
-                        # directly in the Signups tab.
+                        if b_su:
+                            if "B Type" in row and pd.notna(new_b_type) and str(new_b_type).strip():
+                                b_su.vibe = str(new_b_type)
+                            elif new_type:
+                                b_su.vibe = new_type
+                            s.add(b_su)
 
-                        # ETA: Weekly Pairings no longer edits Signup.eta.
-                        # Arrival times shown here are for pairing/display only; underlying
-                        # Signup records stay unchanged unless edited in the Signups tab.
+                        # ETA: write back to both players
+                        if new_eta:
+                            if a_su:
+                                a_su.eta = new_eta
+                                s.add(a_su)
+                            if b_su:
+                                b_su.eta = new_eta
+                                s.add(b_su)
 
-                        # Points: Weekly Pairings no longer edits Signup.points.
-                        # Any per-game points adjustments should be managed via the
-                        # appropriate results/recording workflow, not via this editor.
+                        # Points: write back to both players
+                        if new_pts is not None:
+                            if a_su:
+                                a_su.points = new_pts
+                                s.add(a_su)
+                            if b_su:
+                                b_su.points = new_pts
+                                s.add(b_su)
 
                         s.add(p)
                         changed += 1

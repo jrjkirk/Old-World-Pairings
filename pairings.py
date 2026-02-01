@@ -842,7 +842,8 @@ class MatcherSignup:
     preference: Tuple[int,int,int]  # heuristic tuple for matching
 
 def build_match_preference(su: Signup) -> Tuple[int,int,int]:
-    vibe_w = 0 if (su.vibe or "").lower().startswith("casual") else 1
+    v = (su.vibe or "").strip().lower()
+    vibe_w = 0 if (v.startswith("casual") or v == "escalation") else 1
     exp_map = {"new":0, "some":1, "veteran":2, "experienced":2}
     e_key = (su.experience or "").strip().lower()
     exp_w = 1
@@ -913,7 +914,7 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
                     used_intro.add(seeker.key); used_intro.add(best.key)
             candidates = [m for m in candidates if m.key not in used_intro]
 
-        candidates.sort(key=lambda m: (m.preference, m.key))
+        candidates.sort(key=lambda m: ((0 if ((m.row.vibe or "").strip().lower() == "escalation") else 1) if system == "TOW" else 0, m.preference, m.key))
         # If T&T grouping is enabled and we have an odd number of candidates,
         # and at least three players have opted into Triumph & Treachery, bias
         # the eventual BYE towards a T&T-capable player. This keeps the odd
@@ -988,13 +989,27 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
             # Otherwise fallback to normal check
             return 0 if av == bv else 1
 
+        def _escalation_priority_penalty(a_row, b_row, system_name):
+            """Bias TOW 'Escalation' players to match each other first, else prefer Casual/Either."""
+            if system_name != "TOW":
+                return 0
+            av = ((getattr(a_row, "vibe", None) or "").strip().lower())
+            bv = ((getattr(b_row, "vibe", None) or "").strip().lower())
+            if av != "escalation":
+                return 0
+            if bv == "escalation":
+                return 0
+            if bv in ("casual", "either"):
+                return 1
+            return 2
+
         for i, ms in enumerate(candidates):
             if ms.key in used:
                 continue
             # find best candidate not used, minimal "distance"
             best_j = None
             # lexicographic over (mirror, scenario, ETA bucket, vibe, experience, points)
-            best_dist = (99, 99, 99, 99, 99, 99)
+            best_dist = (99, 99, 99, 99, 99, 99, 99)
             for j in range(i+1, len(candidates)):
                 other = candidates[j]
                 if other.key in used:
@@ -1010,7 +1025,8 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
                 eta_b = _eta_bucket_diff(ms.row, other.row)
                 scen_d = _scenario_diff_tow(ms.row, other.row, system)
                 mir = _mirror_flag(ms.row, other.row)
-                dist = (mir, eta_b, scen_d, dv, de, dp)
+                esc_p = _escalation_priority_penalty(ms.row, other.row, system)
+                dist = (esc_p, mir, eta_b, scen_d, dv, de, dp)
                 if dist < best_dist:
                     best_dist = dist
                     best_j = j
@@ -1033,7 +1049,8 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
                     eta_b = _eta_bucket_diff(ms.row, other.row)
                     scen_d = _scenario_diff_tow(ms.row, other.row, system)
                     mir = _mirror_flag(ms.row, other.row)
-                    dist = (mir, eta_b, scen_d, dv, de, dp)
+                    esc_p = _escalation_priority_penalty(ms.row, other.row, system)
+                    dist = (esc_p, mir, eta_b, scen_d, dv, de, dp)
                     if dist < best_dist:
                         best_dist = dist
                         best_j = j
@@ -1245,7 +1262,7 @@ with T[idx["Call to Arms"]]:
         if is_hh:
             vibe_options = ["Standard", "Intro"]
         else:
-            vibe_options = ["Casual", "Competitive", "Intro", "Either"]
+            vibe_options = ["Casual", "Competitive", "Escalation", "Intro", "Either"]
 
         vibe_index = vibe_options.index(default_vibe) if default_vibe in vibe_options else 0
         vibe = st.selectbox("Type of game", vibe_options, index=vibe_index, key=f"signup_vibe_{system}_{_key_suffix}")

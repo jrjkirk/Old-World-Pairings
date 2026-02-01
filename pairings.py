@@ -1245,6 +1245,8 @@ with T[idx["Call to Arms"]]:
         faction_choice = st.selectbox("Your faction", faction_options, index=faction_index, key=f"signup_faction_{system}_{_key_suffix}")
         # Points
         pts = st.number_input("Army points", min_value=0, max_value=10000, value=int(default_pts), step=50, key=f"signup_pts_{system}_{_key_suffix}")
+        if not is_hh:
+            st.caption("If selecting an Escalation game, please input backup army points limit.")
         # ETA dropdown 17:00-19:30
         eta_options = []
         for h in [17,18,19]:

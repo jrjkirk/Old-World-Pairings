@@ -351,6 +351,16 @@ def init_db():
 
 _ = init_db()
 
+def ensure_league_results_table() -> None:
+    """Ensure the LeagueResult table exists even when Streamlit cache skips init_db after deploys."""
+    try:
+        SQLModel.metadata.create_all(engine, tables=[LeagueResult.__table__])
+    except Exception:
+        # Let the calling query/commit surface the real database error if creation fails.
+        pass
+
+ensure_league_results_table()
+
 # ===================== Utilities / Theme =====================
 
 _DEF_CSS = """
@@ -1523,6 +1533,8 @@ with T[idx["Old World League"]]:
                 player_1_name = player_id_to_name.get(player_1_id, player_1_label)
                 player_2_name = player_id_to_name.get(player_2_id, player_2_label)
 
+                ensure_league_results_table()
+
                 with Session(engine) as s:
                     lr = LeagueResult(
                         player_1_id=player_1_id,
@@ -2024,6 +2036,8 @@ if "League" in idx:
     with T[idx["League"]]:
         st.subheader("League")
         st.markdown("### Submitted Games")
+
+        ensure_league_results_table()
 
         with Session(engine) as s:
             league_results = s.exec(select(LeagueResult).order_by(LeagueResult.id)).all()

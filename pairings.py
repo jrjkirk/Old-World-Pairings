@@ -1463,7 +1463,44 @@ with T[idx["Pairings"]]:
 # --------------- Public: Old World League ---------------
 with T[idx["Old World League"]]:
     st.subheader("Old World League")
-    st.info("League content coming soon.")
+
+    # Placeholder league table. ELO is intentionally fixed for now; the
+    # calculation/backfill logic can be wired in once the scoring rules are set.
+    with Session(engine) as s:
+        players = s.exec(select(Player).where(Player.active == True).order_by(Player.name)).all()
+        tow_signups = s.exec(select(Signup).where(Signup.system == "TOW")).all()
+
+    faction_counts_by_player: Dict[int, Dict[str, int]] = {}
+    for su in tow_signups:
+        if not su.player_id or not su.faction:
+            continue
+        faction_counts_by_player.setdefault(su.player_id, {})
+        faction_counts_by_player[su.player_id][su.faction] = faction_counts_by_player[su.player_id].get(su.faction, 0) + 1
+
+    league_rows = []
+    for pl in players:
+        faction_counts = faction_counts_by_player.get(pl.id or 0, {})
+        most_played_faction = "—"
+        if faction_counts:
+            most_played_faction = sorted(faction_counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
+
+        league_rows.append({
+            "Rank": 0,
+            "ELO": 1000,
+            "Name": pl.name,
+            "Most Played Faction": most_played_faction,
+        })
+
+    league_rows.sort(key=lambda row: (-row["ELO"], row["Name"]))
+    for pos, row in enumerate(league_rows, start=1):
+        row["Rank"] = pos
+
+    if league_rows:
+        st.dataframe(league_rows, width='stretch', hide_index=True)
+    else:
+        empty_league = pd.DataFrame(columns=["Rank", "ELO", "Name", "Most Played Faction"])
+        st.dataframe(empty_league, width='stretch', hide_index=True)
+        st.info("No players found yet. League rankings will appear here once player profiles exist.")
 
 # --------------- Admin: Signups ---------------
 if "Signups" in idx:

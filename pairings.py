@@ -324,6 +324,24 @@ class LeagueResult(SQLModel, table=True):
     result: str
     result_date: str
 
+    # ELO snapshots. These are recalculated from full league history whenever
+    # results are added/deleted, so corrections stay consistent.
+    player_1_rating_before: Optional[float] = None
+    player_2_rating_before: Optional[float] = None
+    player_1_rating_after: Optional[float] = None
+    player_2_rating_after: Optional[float] = None
+    k_factor_used: Optional[int] = None
+
+class LeagueRating(SQLModel, table=True):
+    """Current Old World League rating, separate from the shared app player profile."""
+    __tablename__ = "league_ratings"
+    __table_args__ = {"extend_existing": True}
+    id: Optional[int] = Field(default=None, primary_key=True)
+    player_id: int = Field(index=True)
+    player_name: str
+    rating: float = 1000.0
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
 # ---- Engine ----
 @st.cache_resource
 def get_engine():
@@ -352,14 +370,136 @@ def init_db():
 _ = init_db()
 
 def ensure_league_results_table() -> None:
-    """Ensure the LeagueResult table exists even when Streamlit cache skips init_db after deploys."""
+    """Ensure league tables/columns exist even when Streamlit cache skips init_db after deploys."""
     try:
-        SQLModel.metadata.create_all(engine, tables=[LeagueResult.__table__])
+        SQLModel.metadata.create_all(engine, tables=[LeagueResult.__table__, LeagueRating.__table__])
     except Exception:
         # Let the calling query/commit surface the real database error if creation fails.
         pass
 
+    # create_all does not add new columns to existing tables, so keep this
+    # lightweight migration local to the league feature. Supports SQLite dev and
+    # Postgres/Supabase production.
+    try:
+        with engine.connect() as conn:
+            is_sqlite = str(engine.url).startswith("sqlite")
+            if is_sqlite:
+                existing_cols = {r[1] for r in conn.exec_driver_sql('PRAGMA table_info("league_results")').fetchall()}
+                sqlite_additions = {
+                    "player_1_rating_before": "REAL",
+                    "player_2_rating_before": "REAL",
+                    "player_1_rating_after": "REAL",
+                    "player_2_rating_after": "REAL",
+                    "k_factor_used": "INTEGER",
+                }
+                for col, col_type in sqlite_additions.items():
+                    if col not in existing_cols:
+                        conn.exec_driver_sql(f'ALTER TABLE "league_results" ADD COLUMN {col} {col_type}')
+            else:
+                conn.exec_driver_sql('ALTER TABLE league_results ADD COLUMN IF NOT EXISTS player_1_rating_before DOUBLE PRECISION')
+                conn.exec_driver_sql('ALTER TABLE league_results ADD COLUMN IF NOT EXISTS player_2_rating_before DOUBLE PRECISION')
+                conn.exec_driver_sql('ALTER TABLE league_results ADD COLUMN IF NOT EXISTS player_1_rating_after DOUBLE PRECISION')
+                conn.exec_driver_sql('ALTER TABLE league_results ADD COLUMN IF NOT EXISTS player_2_rating_after DOUBLE PRECISION')
+                conn.exec_driver_sql('ALTER TABLE league_results ADD COLUMN IF NOT EXISTS k_factor_used INTEGER')
+            conn.commit()
+    except Exception:
+        # If migration fails, the later read/write will surface the DB-specific error.
+        pass
+
 ensure_league_results_table()
+
+LEAGUE_BASE_RATING = 1000.0
+LEAGUE_K_FACTOR = 40
+
+def league_expected_score(r_player: float, r_opponent: float) -> float:
+    return 1.0 / (1.0 + 10 ** ((r_opponent - r_player) / 400.0))
+
+def update_league_elo(r_1: float, r_2: float, score_1: float, k: int = LEAGUE_K_FACTOR) -> Tuple[float, float]:
+    e_1 = league_expected_score(r_1, r_2)
+    e_2 = league_expected_score(r_2, r_1)
+    return r_1 + k * (score_1 - e_1), r_2 + k * ((1 - score_1) - e_2)
+
+def _score_for_player_1(result: str) -> float:
+    if result == "Player 1 Victory":
+        return 1.0
+    if result == "Player 2 Victory":
+        return 0.0
+    return 0.5
+
+def recalc_league_ratings() -> None:
+    """Rebuild Old World League ratings and per-game snapshots from submitted results."""
+    ensure_league_results_table()
+    with Session(engine) as s:
+        results = s.exec(select(LeagueResult).order_by(LeagueResult.id)).all()
+        ratings: Dict[int, float] = {}
+        names: Dict[int, str] = {}
+
+        for lr in results:
+            if lr.player_1_id is None or lr.player_2_id is None:
+                continue
+            if lr.player_1_id == lr.player_2_id:
+                continue
+
+            p1 = int(lr.player_1_id)
+            p2 = int(lr.player_2_id)
+            names[p1] = lr.player_1_name
+            names[p2] = lr.player_2_name
+            ratings.setdefault(p1, LEAGUE_BASE_RATING)
+            ratings.setdefault(p2, LEAGUE_BASE_RATING)
+
+            before_1 = ratings[p1]
+            before_2 = ratings[p2]
+            after_1, after_2 = update_league_elo(before_1, before_2, _score_for_player_1(lr.result), LEAGUE_K_FACTOR)
+
+            lr.player_1_rating_before = before_1
+            lr.player_2_rating_before = before_2
+            lr.player_1_rating_after = after_1
+            lr.player_2_rating_after = after_2
+            lr.k_factor_used = LEAGUE_K_FACTOR
+
+            ratings[p1] = after_1
+            ratings[p2] = after_2
+            s.add(lr)
+
+        for existing in s.exec(select(LeagueRating)).all():
+            s.delete(existing)
+        s.commit()
+
+        for pid, rating in ratings.items():
+            s.add(LeagueRating(player_id=pid, player_name=names.get(pid, f"Player #{pid}"), rating=rating, updated_at=datetime.utcnow()))
+        s.commit()
+
+def _league_most_played_factions() -> Dict[int, str]:
+    """Best available faction signal for league rankings, based on TOW signup history."""
+    with Session(engine) as s:
+        counts: Dict[int, Dict[str, int]] = {}
+        signups = s.exec(select(Signup).where(Signup.system == "TOW")).all()
+        for su in signups:
+            if su.player_id is None or not su.faction:
+                continue
+            counts.setdefault(int(su.player_id), {})[su.faction] = counts.setdefault(int(su.player_id), {}).get(su.faction, 0) + 1
+    return {pid: sorted(facs.items(), key=lambda kv: (-kv[1], kv[0]))[0][0] for pid, facs in counts.items() if facs}
+
+def league_rankings_rows() -> List[dict]:
+    ensure_league_results_table()
+    with Session(engine) as s:
+        ratings = s.exec(select(LeagueRating).order_by(LeagueRating.rating.desc(), LeagueRating.player_name)).all()
+        has_results = s.exec(select(LeagueResult)).first() is not None
+    if has_results and not ratings:
+        recalc_league_ratings()
+        with Session(engine) as s:
+            ratings = s.exec(select(LeagueRating).order_by(LeagueRating.rating.desc(), LeagueRating.player_name)).all()
+
+    faction_map = _league_most_played_factions()
+    return [
+        {
+            "Rank": idx + 1,
+            "ELO": round(r.rating, 1),
+            "Name": r.player_name,
+            "Most Played Faction": faction_map.get(r.player_id, "—"),
+        }
+        for idx, r in enumerate(ratings)
+    ]
 
 # ===================== Utilities / Theme =====================
 
@@ -1488,12 +1628,14 @@ with T[idx["Pairings"]]:
 with T[idx["Old World League"]]:
     st.subheader("Old World League")
 
-    # League rankings are intentionally not auto-populated from existing players yet.
-    # A dedicated league source/list can be wired in once the ranking model is defined.
     st.markdown("### League Rankings")
-    empty_league = pd.DataFrame(columns=["Rank", "ELO", "Name", "Most Played Faction"])
-    st.dataframe(empty_league, width='stretch', hide_index=True)
-    st.info("League rankings will appear here once the dedicated league list and ELO rules are added.")
+    league_rows = league_rankings_rows()
+    if league_rows:
+        st.dataframe(league_rows, width='stretch', hide_index=True)
+    else:
+        empty_league = pd.DataFrame(columns=["Rank", "ELO", "Name", "Most Played Faction"])
+        st.dataframe(empty_league, width='stretch', hide_index=True)
+        st.info("League rankings will appear here once league results have been submitted.")
 
     st.divider()
     st.markdown("### Results Submission")
@@ -1546,7 +1688,8 @@ with T[idx["Old World League"]]:
                     )
                     s.add(lr)
                     s.commit()
-                st.success("League result submitted.")
+                recalc_league_ratings()
+                st.success("League result submitted and ELO rankings recalculated.")
     else:
         st.info("No player profiles found yet. Add players via the signup flow first.")
 
@@ -2039,6 +2182,12 @@ if "League" in idx:
 
         ensure_league_results_table()
 
+        recalc_col, _ = st.columns([1, 3])
+        with recalc_col:
+            if st.button("Recalculate ELO ratings"):
+                recalc_league_ratings()
+                st.success("League ELO ratings recalculated from full result history.")
+
         with Session(engine) as s:
             league_results = s.exec(select(LeagueResult).order_by(LeagueResult.id)).all()
 
@@ -2052,6 +2201,11 @@ if "League" in idx:
                     "Player 2": lr.player_2_name,
                     "Result": lr.result,
                     "Date": lr.result_date,
+                    "P1 Before": round(lr.player_1_rating_before, 1) if lr.player_1_rating_before is not None else None,
+                    "P2 Before": round(lr.player_2_rating_before, 1) if lr.player_2_rating_before is not None else None,
+                    "P1 After": round(lr.player_1_rating_after, 1) if lr.player_1_rating_after is not None else None,
+                    "P2 After": round(lr.player_2_rating_after, 1) if lr.player_2_rating_after is not None else None,
+                    "K Used": lr.k_factor_used,
                 }
                 for lr in league_results
             ]
@@ -2068,7 +2222,8 @@ if "League" in idx:
                         if obj:
                             s.delete(obj)
                     s.commit()
-                st.warning(f"Deleted {len(delete_result_ids)} league result(s).")
+                recalc_league_ratings()
+                st.warning(f"Deleted {len(delete_result_ids)} league result(s) and recalculated ELO ratings.")
 
 
 # --------------- Admin: View History ---------------

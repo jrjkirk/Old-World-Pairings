@@ -1464,65 +1464,29 @@ with T[idx["Pairings"]]:
 with T[idx["Old World League"]]:
     st.subheader("Old World League")
 
-    # Placeholder league table. ELO is intentionally fixed for now; the
-    # calculation/backfill logic can be wired in once the scoring rules are set.
-    # Only players with at least one TOW signup are included in the Old World League.
+    # League rankings are intentionally not auto-populated from existing players yet.
+    # A dedicated league source/list can be wired in once the ranking model is defined.
+    st.markdown("### League Rankings")
+    empty_league = pd.DataFrame(columns=["Rank", "ELO", "Name", "Most Played Faction"])
+    st.dataframe(empty_league, width='stretch', hide_index=True)
+    st.info("League rankings will appear here once the dedicated league list and ELO rules are added.")
+
+    st.divider()
+    st.markdown("### Results Submission")
     with Session(engine) as s:
-        players = s.exec(select(Player).where(Player.active == True).order_by(Player.name)).all()
-        tow_signups = s.exec(select(Signup).where(Signup.system == "TOW")).all()
+        result_players = s.exec(select(Player).where(Player.active == True).order_by(Player.name)).all()
 
-    tow_player_ids: Set[int] = set()
-    tow_player_names: Set[str] = set()
-    faction_counts_by_player: Dict[int, Dict[str, int]] = {}
-    faction_counts_by_name: Dict[str, Dict[str, int]] = {}
-
-    for su in tow_signups:
-        player_name_key = _normalize_name(su.player_name).lower() if su.player_name else ""
-        if su.player_id:
-            tow_player_ids.add(su.player_id)
-        if player_name_key:
-            tow_player_names.add(player_name_key)
-
-        if not su.faction:
-            continue
-
-        if su.player_id:
-            faction_counts_by_player.setdefault(su.player_id, {})
-            faction_counts_by_player[su.player_id][su.faction] = faction_counts_by_player[su.player_id].get(su.faction, 0) + 1
-
-        if player_name_key:
-            faction_counts_by_name.setdefault(player_name_key, {})
-            faction_counts_by_name[player_name_key][su.faction] = faction_counts_by_name[player_name_key].get(su.faction, 0) + 1
-
-    league_rows = []
-    for pl in players:
-        player_name_key = _normalize_name(pl.name).lower() if pl.name else ""
-        has_tow_signup = ((pl.id in tow_player_ids) if pl.id is not None else False) or (player_name_key in tow_player_names)
-        if not has_tow_signup:
-            continue
-
-        faction_counts = faction_counts_by_player.get(pl.id or 0, {}) or faction_counts_by_name.get(player_name_key, {})
-        most_played_faction = "—"
-        if faction_counts:
-            most_played_faction = sorted(faction_counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
-
-        league_rows.append({
-            "Rank": 0,
-            "ELO": 1000,
-            "Name": pl.name,
-            "Most Played Faction": most_played_faction,
-        })
-
-    league_rows.sort(key=lambda row: (-row["ELO"], row["Name"]))
-    for pos, row in enumerate(league_rows, start=1):
-        row["Rank"] = pos
-
-    if league_rows:
-        st.dataframe(league_rows, width='stretch', hide_index=True)
+    player_name_options = [((p.name or "").strip()) for p in result_players if (p.name or "").strip()]
+    if player_name_options:
+        c1, c_vs, c2 = st.columns([2, 0.35, 2])
+        with c1:
+            st.selectbox("Player 1", player_name_options, key="owl_results_player_1")
+        with c_vs:
+            st.markdown("<div style='text-align:center;font-weight:700;padding-top:2.1rem'>vs</div>", unsafe_allow_html=True)
+        with c2:
+            st.selectbox("Player 2", player_name_options, key="owl_results_player_2")
     else:
-        empty_league = pd.DataFrame(columns=["Rank", "ELO", "Name", "Most Played Faction"])
-        st.dataframe(empty_league, width='stretch', hide_index=True)
-        st.info("No players found yet. League rankings will appear here once player profiles exist.")
+        st.info("No player profiles found yet. Add players via the signup flow first.")
 
 # --------------- Admin: Signups ---------------
 if "Signups" in idx:

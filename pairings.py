@@ -2057,6 +2057,19 @@ if "League" in idx:
             ]
             st.dataframe(league_rows, width='stretch', hide_index=True)
 
+            delete_result_ids = st.multiselect(
+                "Delete results (select Game Number)",
+                options=[row["Game Number"] for row in league_rows],
+            )
+            if st.button("Delete selected result(s)") and delete_result_ids:
+                with Session(engine) as s:
+                    for rid in delete_result_ids:
+                        obj = s.get(LeagueResult, int(rid))
+                        if obj:
+                            s.delete(obj)
+                    s.commit()
+                st.warning(f"Deleted {len(delete_result_ids)} league result(s).")
+
 
 # --------------- Admin: View History ---------------
 if "View History" in idx:

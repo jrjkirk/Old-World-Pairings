@@ -310,6 +310,20 @@ class Pairing(SQLModel, table=True):
     a_faction: Optional[str] = None
     b_faction: Optional[str] = None
 
+class LeagueResult(SQLModel, table=True):
+    """Submitted Old World League game results, separate from weekly pairings."""
+    __tablename__ = "league_results"
+    __table_args__ = {"extend_existing": True}
+    id: Optional[int] = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    player_1_id: Optional[int] = Field(default=None, index=True)
+    player_1_name: str
+    player_2_id: Optional[int] = Field(default=None, index=True)
+    player_2_name: str
+    result: str
+    result_date: str
+
 # ---- Engine ----
 @st.cache_resource
 def get_engine():
@@ -1128,7 +1142,7 @@ with st.sidebar:
         st.markdown(f"<div style='display:flex;justify-content:center;align-items:center;margin-top:10px'>{disc_img}</div>", unsafe_allow_html=True)
 
 tabs_public = ["Call to Arms", "Pairings", "Old World League"]
-tabs_admin  = ["Signups", "Generate Pairings", "Weekly Pairings", "View History", "Call to Arms Post"]
+tabs_admin  = ["Signups", "Generate Pairings", "Weekly Pairings", "League", "View History", "Call to Arms Post"]
 order = tabs_public + (tabs_admin if st.session_state.get("is_admin") else [])
 T = st.tabs(order)
 idx = {name:i for i,name in enumerate(order)}
@@ -1476,17 +1490,54 @@ with T[idx["Old World League"]]:
     with Session(engine) as s:
         result_players = s.exec(select(Player).where(Player.active == True).order_by(Player.name)).all()
 
-    player_name_options = ["-None-", *[((p.name or "").strip()) for p in result_players if (p.name or "").strip()]]
-    if len(player_name_options) > 1:
-        c1, c_vs, c2 = st.columns([2, 0.35, 2])
-        with c1:
-            st.selectbox("Player 1", player_name_options, index=0, key="owl_results_player_1")
-        with c_vs:
-            st.markdown("<div style='text-align:center;font-weight:700;padding-top:2.1rem'>vs</div>", unsafe_allow_html=True)
-        with c2:
-            st.selectbox("Player 2", player_name_options, index=0, key="owl_results_player_2")
+    player_label_options = ["-None-", *[f"#{p.id} — {(p.name or '').strip()}" for p in result_players if (p.name or "").strip()]]
+    player_label_to_id = {f"#{p.id} — {(p.name or '').strip()}": p.id for p in result_players if (p.name or "").strip()}
+    player_id_to_name = {p.id: (p.name or "").strip() for p in result_players if (p.name or "").strip()}
+
+    if len(player_label_options) > 1:
+        with st.form("old_world_league_result_form", clear_on_submit=True):
+            c1, c_vs, c2 = st.columns([2, 0.35, 2])
+            with c1:
+                player_1_label = st.selectbox("Player 1", player_label_options, index=0, key="owl_results_player_1")
+            with c_vs:
+                st.markdown("<div style='text-align:center;font-weight:700;padding-top:2.1rem'>vs</div>", unsafe_allow_html=True)
+            with c2:
+                player_2_label = st.selectbox("Player 2", player_label_options, index=0, key="owl_results_player_2")
+
+            result_choice = st.selectbox(
+                "Result",
+                ["Player 1 Victory", "Player 2 Victory", "Draw"],
+                index=0,
+                key="owl_results_result",
+            )
+            submitted_league_result = st.form_submit_button("Submit Result")
+
+        if submitted_league_result:
+            if player_1_label == "-None-" or player_2_label == "-None-":
+                st.error("Please select both players before submitting a result.")
+            elif player_1_label == player_2_label:
+                st.error("Please select two different players before submitting a result.")
+            else:
+                player_1_id = player_label_to_id.get(player_1_label)
+                player_2_id = player_label_to_id.get(player_2_label)
+                player_1_name = player_id_to_name.get(player_1_id, player_1_label)
+                player_2_name = player_id_to_name.get(player_2_id, player_2_label)
+
+                with Session(engine) as s:
+                    lr = LeagueResult(
+                        player_1_id=player_1_id,
+                        player_1_name=player_1_name,
+                        player_2_id=player_2_id,
+                        player_2_name=player_2_name,
+                        result=result_choice,
+                        result_date=uk_date_str(date.today()),
+                    )
+                    s.add(lr)
+                    s.commit()
+                st.success("League result submitted.")
     else:
         st.info("No player profiles found yet. Add players via the signup flow first.")
+
 
 # --------------- Admin: Signups ---------------
 if "Signups" in idx:
@@ -1968,6 +2019,31 @@ if "Weekly Pairings" in idx:
                     st.success(f"Deleted {len(ids)} pairing(s).")
                 except Exception as e:
                     st.error(f"Error: {e}")
+# --------------- Admin: League ---------------
+if "League" in idx:
+    with T[idx["League"]]:
+        st.subheader("League")
+        st.markdown("### Submitted Games")
+
+        with Session(engine) as s:
+            league_results = s.exec(select(LeagueResult).order_by(LeagueResult.id)).all()
+
+        if not league_results:
+            st.info("No league results have been submitted yet.")
+        else:
+            league_rows = [
+                {
+                    "Game Number": lr.id,
+                    "Player 1": lr.player_1_name,
+                    "Player 2": lr.player_2_name,
+                    "Result": lr.result,
+                    "Date": lr.result_date,
+                }
+                for lr in league_results
+            ]
+            st.dataframe(league_rows, width='stretch', hide_index=True)
+
+
 # --------------- Admin: View History ---------------
 if "View History" in idx:
     with T[idx["View History"]]:

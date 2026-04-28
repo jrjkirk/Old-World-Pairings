@@ -1476,15 +1476,15 @@ with T[idx["Old World League"]]:
     with Session(engine) as s:
         result_players = s.exec(select(Player).where(Player.active == True).order_by(Player.name)).all()
 
-    player_name_options = [((p.name or "").strip()) for p in result_players if (p.name or "").strip()]
-    if player_name_options:
+    player_name_options = ["-None-", *[((p.name or "").strip()) for p in result_players if (p.name or "").strip()]]
+    if len(player_name_options) > 1:
         c1, c_vs, c2 = st.columns([2, 0.35, 2])
         with c1:
-            st.selectbox("Player 1", player_name_options, key="owl_results_player_1")
+            st.selectbox("Player 1", player_name_options, index=0, key="owl_results_player_1")
         with c_vs:
             st.markdown("<div style='text-align:center;font-weight:700;padding-top:2.1rem'>vs</div>", unsafe_allow_html=True)
         with c2:
-            st.selectbox("Player 2", player_name_options, key="owl_results_player_2")
+            st.selectbox("Player 2", player_name_options, index=0, key="owl_results_player_2")
     else:
         st.info("No player profiles found yet. Add players via the signup flow first.")
 

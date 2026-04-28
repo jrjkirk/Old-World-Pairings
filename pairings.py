@@ -1466,20 +1466,42 @@ with T[idx["Old World League"]]:
 
     # Placeholder league table. ELO is intentionally fixed for now; the
     # calculation/backfill logic can be wired in once the scoring rules are set.
+    # Only players with at least one TOW signup are included in the Old World League.
     with Session(engine) as s:
         players = s.exec(select(Player).where(Player.active == True).order_by(Player.name)).all()
         tow_signups = s.exec(select(Signup).where(Signup.system == "TOW")).all()
 
+    tow_player_ids: Set[int] = set()
+    tow_player_names: Set[str] = set()
     faction_counts_by_player: Dict[int, Dict[str, int]] = {}
+    faction_counts_by_name: Dict[str, Dict[str, int]] = {}
+
     for su in tow_signups:
-        if not su.player_id or not su.faction:
+        player_name_key = _normalize_name(su.player_name).lower() if su.player_name else ""
+        if su.player_id:
+            tow_player_ids.add(su.player_id)
+        if player_name_key:
+            tow_player_names.add(player_name_key)
+
+        if not su.faction:
             continue
-        faction_counts_by_player.setdefault(su.player_id, {})
-        faction_counts_by_player[su.player_id][su.faction] = faction_counts_by_player[su.player_id].get(su.faction, 0) + 1
+
+        if su.player_id:
+            faction_counts_by_player.setdefault(su.player_id, {})
+            faction_counts_by_player[su.player_id][su.faction] = faction_counts_by_player[su.player_id].get(su.faction, 0) + 1
+
+        if player_name_key:
+            faction_counts_by_name.setdefault(player_name_key, {})
+            faction_counts_by_name[player_name_key][su.faction] = faction_counts_by_name[player_name_key].get(su.faction, 0) + 1
 
     league_rows = []
     for pl in players:
-        faction_counts = faction_counts_by_player.get(pl.id or 0, {})
+        player_name_key = _normalize_name(pl.name).lower() if pl.name else ""
+        has_tow_signup = ((pl.id in tow_player_ids) if pl.id is not None else False) or (player_name_key in tow_player_names)
+        if not has_tow_signup:
+            continue
+
+        faction_counts = faction_counts_by_player.get(pl.id or 0, {}) or faction_counts_by_name.get(player_name_key, {})
         most_played_faction = "—"
         if faction_counts:
             most_played_faction = sorted(faction_counts.items(), key=lambda item: (-item[1], item[0]))[0][0]

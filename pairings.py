@@ -1127,7 +1127,7 @@ with st.sidebar:
     elif disc_img:
         st.markdown(f"<div style='display:flex;justify-content:center;align-items:center;margin-top:10px'>{disc_img}</div>", unsafe_allow_html=True)
 
-tabs_public = ["Call to Arms", "Pairings"]
+tabs_public = ["Call to Arms", "Pairings", "Old World League"]
 tabs_admin  = ["Signups", "Generate Pairings", "Weekly Pairings", "View History", "Call to Arms Post"]
 order = tabs_public + (tabs_admin if st.session_state.get("is_admin") else [])
 T = st.tabs(order)
@@ -1459,6 +1459,11 @@ with T[idx["Pairings"]]:
                         "Points": pts_show
                     })
             st.dataframe(rows, width='stretch', hide_index=True)
+
+# --------------- Public: Old World League ---------------
+with T[idx["Old World League"]]:
+    st.subheader("Old World League")
+    st.info("League content coming soon.")
 
 # --------------- Admin: Signups ---------------
 if "Signups" in idx:

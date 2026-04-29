@@ -372,17 +372,19 @@ def init_db():
 
 _ = init_db()
 
+@st.cache_resource(show_spinner=False)
 def ensure_league_results_table() -> None:
-    """Ensure league tables/columns exist even when Streamlit cache skips init_db after deploys."""
+    """Ensure league tables/columns exist once per app process.
+
+    create_all creates new tables but does not add new columns to an existing
+    table, so this also includes a small league-only migration for SQLite and
+    Postgres/Supabase.
+    """
     try:
         SQLModel.metadata.create_all(engine, tables=[LeagueResult.__table__, LeagueRating.__table__])
     except Exception:
-        # Let the calling query/commit surface the real database error if creation fails.
         pass
 
-    # create_all does not add new columns to existing tables, so keep this
-    # lightweight migration local to the league feature. Supports SQLite dev and
-    # Postgres/Supabase production.
     try:
         with engine.connect() as conn:
             is_sqlite = str(engine.url).startswith("sqlite")
@@ -412,7 +414,6 @@ def ensure_league_results_table() -> None:
                 conn.exec_driver_sql("ALTER TABLE league_results ADD COLUMN IF NOT EXISTS game_type TEXT DEFAULT 'Competitive'")
             conn.commit()
     except Exception:
-        # If migration fails, the later read/write will surface the DB-specific error.
         pass
 
 ensure_league_results_table()
@@ -420,12 +421,18 @@ ensure_league_results_table()
 LEAGUE_BASE_RATING = 1000.0
 LEAGUE_CASUAL_K_FACTOR = 10
 LEAGUE_COMPETITIVE_K_FACTOR = 40
-LEAGUE_K_FACTOR = LEAGUE_COMPETITIVE_K_FACTOR
+
+def invalidate_app_caches() -> None:
+    """Clear cached read snapshots after database writes so the UI refreshes cleanly."""
+    try:
+        st.cache_data.clear()
+    except Exception:
+        pass
 
 def league_expected_score(r_player: float, r_opponent: float) -> float:
     return 1.0 / (1.0 + 10 ** ((r_opponent - r_player) / 400.0))
 
-def update_league_elo(r_1: float, r_2: float, score_1: float, k: int = LEAGUE_K_FACTOR) -> Tuple[float, float]:
+def update_league_elo(r_1: float, r_2: float, score_1: float, k: int) -> Tuple[float, float]:
     e_1 = league_expected_score(r_1, r_2)
     e_2 = league_expected_score(r_2, r_1)
     return r_1 + k * (score_1 - e_1), r_2 + k * ((1 - score_1) - e_2)
@@ -480,18 +487,22 @@ def recalc_league_ratings() -> None:
 
         for existing in s.exec(select(LeagueRating)).all():
             s.delete(existing)
-        s.commit()
 
         for pid, rating in ratings.items():
-            s.add(LeagueRating(player_id=pid, player_name=names.get(pid, f"Player #{pid}"), rating=rating, updated_at=datetime.utcnow()))
+            s.add(
+                LeagueRating(
+                    player_id=pid,
+                    player_name=names.get(pid, f"Player #{pid}"),
+                    rating=rating,
+                    updated_at=datetime.utcnow(),
+                )
+            )
         s.commit()
 
-def _league_faction_and_games_maps() -> Tuple[Dict[int, str], Dict[int, int]]:
-    """Return league-only most-played faction and games played maps.
+    invalidate_app_caches()
 
-    Faction counts come only from submitted Old World League results. Ties are
-    resolved by whichever tied faction was used most recently in league data.
-    """
+@st.cache_data(ttl=60, show_spinner=False)
+def _league_faction_and_games_maps() -> Tuple[Dict[int, str], Dict[int, int]]:
     ensure_league_results_table()
     with Session(engine) as s:
         results = s.exec(select(LeagueResult).order_by(LeagueResult.id)).all()
@@ -525,11 +536,13 @@ def _league_faction_and_games_maps() -> Tuple[Dict[int, str], Dict[int, int]]:
 
     return faction_map, games_played
 
+@st.cache_data(ttl=60, show_spinner=False)
 def league_rankings_rows() -> List[dict]:
     ensure_league_results_table()
     with Session(engine) as s:
         ratings = s.exec(select(LeagueRating).order_by(LeagueRating.rating.desc(), LeagueRating.player_name)).all()
         has_results = s.exec(select(LeagueResult)).first() is not None
+
     if has_results and not ratings:
         recalc_league_ratings()
         with Session(engine) as s:
@@ -546,6 +559,49 @@ def league_rankings_rows() -> List[dict]:
         }
         for idx, r in enumerate(ratings)
     ]
+
+@st.cache_data(ttl=60, show_spinner=False)
+def league_submitted_games_rows() -> List[dict]:
+    ensure_league_results_table()
+    with Session(engine) as s:
+        league_results = s.exec(select(LeagueResult).order_by(LeagueResult.id)).all()
+
+    return [
+        {
+            "Game Number": lr.id,
+            "Player 1": lr.player_1_name,
+            "P1 Faction": getattr(lr, "player_1_faction", None),
+            "Player 2": lr.player_2_name,
+            "P2 Faction": getattr(lr, "player_2_faction", None),
+            "Result": lr.result,
+            "Game Type": getattr(lr, "game_type", None) or "Competitive",
+            "Date": lr.result_date,
+            "P1 Before": round(lr.player_1_rating_before, 1) if lr.player_1_rating_before is not None else None,
+            "P2 Before": round(lr.player_2_rating_before, 1) if lr.player_2_rating_before is not None else None,
+            "P1 After": round(lr.player_1_rating_after, 1) if lr.player_1_rating_after is not None else None,
+            "P2 After": round(lr.player_2_rating_after, 1) if lr.player_2_rating_after is not None else None,
+            "K Used": lr.k_factor_used,
+        }
+        for lr in league_results
+    ]
+
+@st.cache_data(ttl=120, show_spinner=False)
+def all_players_snapshot() -> List[dict]:
+    with Session(engine) as s:
+        players = s.exec(select(Player).order_by(Player.id)).all()
+        return [
+            {
+                "id": p.id,
+                "name": (p.name or "").strip(),
+                "active": bool(p.active),
+            }
+            for p in players
+            if p.id is not None and (p.name or "").strip()
+        ]
+
+@st.cache_data(ttl=120, show_spinner=False)
+def active_players_snapshot() -> List[dict]:
+    return [p for p in all_players_snapshot() if p.get("active", True)]
 
 # ===================== Utilities / Theme =====================
 
@@ -1119,7 +1175,7 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
                         status="pending",
                         a_faction=seeker.row.faction, b_faction=best.row.faction
                     )
-                    s.add(p); s.commit(); s.refresh(p)
+                    s.add(p); s.flush()
                     intro_pairs.append(p)
                     used_intro.add(seeker.key); used_intro.add(best.key)
             candidates = [m for m in candidates if m.key not in used_intro]
@@ -1274,7 +1330,7 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
                     status="pending",
                     a_faction=ms.row.faction, b_faction=None
                 )
-                s.add(p); s.commit(); s.refresh(p); out.append(p)
+                s.add(p); s.flush(); out.append(p)
                 used.add(ms.key)
             else:
                 other = candidates[best_j]
@@ -1284,9 +1340,10 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
                     status="pending",
                     a_faction=ms.row.faction, b_faction=other.row.faction
                 )
-                s.add(p); s.commit(); s.refresh(p); out.append(p)
+                s.add(p); s.flush(); out.append(p)
                 used.add(ms.key); used.add(other.key)
 
+        s.commit()
         return out
 
 # ===================== UI =====================
@@ -1525,6 +1582,7 @@ with T[idx["Call to Arms"]]:
                 scenario=scenario, can_demo=can_demo
             )
             s.add(su); s.commit()
+            invalidate_app_caches()
 
             player_name_for_webhook = pl.name
 
@@ -1564,6 +1622,7 @@ with T[idx["Call to Arms"]]:
                     for su in su_rows:
                         s.delete(su)
                     s.commit()
+                    invalidate_app_caches()
                     st.success("You've been removed from this week's signup.")
                     # Discord notification for TOW drops
                     if system == "TOW":
@@ -1619,10 +1678,17 @@ with T[idx["Pairings"]]:
 
                     return av or bv or ""
 
+                signup_ids = {p.a_signup_id for p in prs}
+                signup_ids.update({p.b_signup_id for p in prs if p.b_signup_id})
+                signup_by_id = {
+                    su.id: su
+                    for su in s.exec(select(Signup).where(Signup.id.in_(signup_ids))).all()
+                } if signup_ids else {}
+
                 rows = []
                 for p in prs:
-                    a = s.get(Signup, p.a_signup_id)
-                    b = s.get(Signup, p.b_signup_id) if p.b_signup_id else None
+                    a = signup_by_id.get(p.a_signup_id)
+                    b = signup_by_id.get(p.b_signup_id) if p.b_signup_id else None
 
                     # Compute ETA (later of two) and Points (lower of two)
                     def _parse_eta(sval):
@@ -1685,12 +1751,11 @@ with T[idx["Old World League"]]:
 
     st.divider()
     st.markdown("### Results Submission")
-    with Session(engine) as s:
-        result_players = s.exec(select(Player).where(Player.active == True).order_by(Player.name)).all()
+    result_players = sorted(active_players_snapshot(), key=lambda p: p["name"].lower())
 
-    player_label_options = ["-None-", *[f"#{p.id} — {(p.name or '').strip()}" for p in result_players if (p.name or "").strip()]]
-    player_label_to_id = {f"#{p.id} — {(p.name or '').strip()}": p.id for p in result_players if (p.name or "").strip()}
-    player_id_to_name = {p.id: (p.name or "").strip() for p in result_players if (p.name or "").strip()}
+    player_label_options = ["-None-", *[f"#{p['id']} — {p['name']}" for p in result_players]]
+    player_label_to_id = {f"#{p['id']} — {p['name']}": p["id"] for p in result_players}
+    player_id_to_name = {p["id"]: p["name"] for p in result_players}
 
     if len(player_label_options) > 1:
         with st.form("old_world_league_result_form", clear_on_submit=True):
@@ -1823,6 +1888,7 @@ if "Signups" in idx:
                                     s.add(su); changes += 1
                         if changes:
                             s.commit()
+                            invalidate_app_caches()
                     if changes:
                         st.success(f"Saved {changes} row(s).")
                     else:
@@ -1836,6 +1902,7 @@ if "Signups" in idx:
                             if obj:
                                 s.delete(obj)
                         s.commit()
+                    invalidate_app_caches()
                     st.warning(f"Deleted {len(del_ids)} signup(s).")
 
 # --------------- Admin: Generate ---------------
@@ -1866,6 +1933,7 @@ if "Generate Pairings" in idx:
                     s.delete(r)
                 s.commit()
             created = generate_pairings_for_week(week_val, sys_pick, allow_repeats_when_needed=allow_repeats, allow_tnt=allow_tnt)
+            invalidate_app_caches()
             if created:
                 st.success(f"Created {len(created)} pairing(s).")
             else:
@@ -1942,6 +2010,7 @@ if "Weekly Pairings" in idx:
                     else:
                         g.published = True
                     s.add(g); s.commit()
+                invalidate_app_caches()
                 st.success("Published.")
                 st.rerun()
         with col_p2:
@@ -1953,6 +2022,7 @@ if "Weekly Pairings" in idx:
                     else:
                         g.published = False
                     s.add(g); s.commit()
+                invalidate_app_caches()
                 st.warning("Unpublished.")
                 st.rerun()
         with col_p3:
@@ -2249,30 +2319,11 @@ if "League" in idx:
                 recalc_league_ratings()
                 st.success("League ELO ratings recalculated from full result history.")
 
-        with Session(engine) as s:
-            league_results = s.exec(select(LeagueResult).order_by(LeagueResult.id)).all()
+        league_rows = league_submitted_games_rows()
 
-        if not league_results:
+        if not league_rows:
             st.info("No league results have been submitted yet.")
         else:
-            league_rows = [
-                {
-                    "Game Number": lr.id,
-                    "Player 1": lr.player_1_name,
-                    "P1 Faction": getattr(lr, "player_1_faction", None),
-                    "Player 2": lr.player_2_name,
-                    "P2 Faction": getattr(lr, "player_2_faction", None),
-                    "Result": lr.result,
-                    "Game Type": getattr(lr, "game_type", None) or "Competitive",
-                    "Date": lr.result_date,
-                    "P1 Before": round(lr.player_1_rating_before, 1) if lr.player_1_rating_before is not None else None,
-                    "P2 Before": round(lr.player_2_rating_before, 1) if lr.player_2_rating_before is not None else None,
-                    "P1 After": round(lr.player_1_rating_after, 1) if lr.player_1_rating_after is not None else None,
-                    "P2 After": round(lr.player_2_rating_after, 1) if lr.player_2_rating_after is not None else None,
-                    "K Used": lr.k_factor_used,
-                }
-                for lr in league_results
-            ]
             st.dataframe(league_rows, width='stretch', hide_index=True)
 
             delete_result_ids = st.multiselect(
@@ -2319,9 +2370,17 @@ if "View History" in idx:
                     except Exception:
                         return None
 
-                for p in prs[:limit]:
-                    a = s.get(Signup, p.a_signup_id)
-                    b = s.get(Signup, p.b_signup_id) if p.b_signup_id else None
+                limited_prs = prs[:limit]
+                signup_ids = {p.a_signup_id for p in limited_prs}
+                signup_ids.update({p.b_signup_id for p in limited_prs if p.b_signup_id})
+                signup_by_id = {
+                    su.id: su
+                    for su in s.exec(select(Signup).where(Signup.id.in_(signup_ids))).all()
+                } if signup_ids else {}
+
+                for p in limited_prs:
+                    a = signup_by_id.get(p.a_signup_id)
+                    b = signup_by_id.get(p.b_signup_id) if p.b_signup_id else None
 
                     ta = _parse_eta_hist(a.eta if a else None)
                     tb = _parse_eta_hist(b.eta if b else None)

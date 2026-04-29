@@ -325,6 +325,8 @@ class LeagueResult(SQLModel, table=True):
     result_date: str
     player_1_faction: Optional[str] = None
     player_2_faction: Optional[str] = None
+    player_1_painting_bonus: Optional[str] = None
+    player_2_painting_bonus: Optional[str] = None
     game_type: str = "Competitive"  # "Casual" => K=10; "Competitive" => K=40
 
     # ELO snapshots. These are recalculated from full league history whenever
@@ -398,6 +400,8 @@ def ensure_league_results_table() -> None:
                     "k_factor_used": "INTEGER",
                     "player_1_faction": "TEXT",
                     "player_2_faction": "TEXT",
+                    "player_1_painting_bonus": "TEXT",
+                    "player_2_painting_bonus": "TEXT",
                     "game_type": "TEXT DEFAULT 'Competitive'",
                 }
                 for col, col_type in sqlite_additions.items():
@@ -411,6 +415,8 @@ def ensure_league_results_table() -> None:
                 conn.exec_driver_sql('ALTER TABLE league_results ADD COLUMN IF NOT EXISTS k_factor_used INTEGER')
                 conn.exec_driver_sql("ALTER TABLE league_results ADD COLUMN IF NOT EXISTS player_1_faction TEXT")
                 conn.exec_driver_sql("ALTER TABLE league_results ADD COLUMN IF NOT EXISTS player_2_faction TEXT")
+                conn.exec_driver_sql("ALTER TABLE league_results ADD COLUMN IF NOT EXISTS player_1_painting_bonus TEXT")
+                conn.exec_driver_sql("ALTER TABLE league_results ADD COLUMN IF NOT EXISTS player_2_painting_bonus TEXT")
                 conn.exec_driver_sql("ALTER TABLE league_results ADD COLUMN IF NOT EXISTS game_type TEXT DEFAULT 'Competitive'")
             conn.commit()
     except Exception:
@@ -571,8 +577,10 @@ def league_submitted_games_rows() -> List[dict]:
             "Game Number": lr.id,
             "Player 1": lr.player_1_name,
             "P1 Faction": getattr(lr, "player_1_faction", None),
+            "P1 Painting Bonus": getattr(lr, "player_1_painting_bonus", None),
             "Player 2": lr.player_2_name,
             "P2 Faction": getattr(lr, "player_2_faction", None),
+            "P2 Painting Bonus": getattr(lr, "player_2_painting_bonus", None),
             "Result": lr.result,
             "Game Type": getattr(lr, "game_type", None) or "Competitive",
             "Date": lr.result_date,
@@ -1759,14 +1767,17 @@ with T[idx["Old World League"]]:
         with st.form("old_world_league_result_form", clear_on_submit=True):
             c1, c_vs, c2 = st.columns([2, 0.35, 2])
             league_faction_options = ["-None-", *PLACEHOLDER_FACTIONS]
+            painting_bonus_options = ["-None-", "Partially Painted", "Fully Painted"]
             with c1:
                 player_1_label = st.selectbox("Player 1", player_label_options, index=0, key="owl_results_player_1")
                 player_1_faction_choice = st.selectbox("Player 1 faction", league_faction_options, index=0, key="owl_results_player_1_faction")
+                player_1_painting_bonus_choice = st.selectbox("Player 1 Painting Bonus", painting_bonus_options, index=0, key="owl_results_player_1_painting_bonus")
             with c_vs:
                 st.markdown("<div style='text-align:center;font-weight:700;padding-top:2.1rem'>vs</div>", unsafe_allow_html=True)
             with c2:
                 player_2_label = st.selectbox("Player 2", player_label_options, index=0, key="owl_results_player_2")
                 player_2_faction_choice = st.selectbox("Player 2 faction", league_faction_options, index=0, key="owl_results_player_2_faction")
+                player_2_painting_bonus_choice = st.selectbox("Player 2 Painting Bonus", painting_bonus_options, index=0, key="owl_results_player_2_painting_bonus")
 
             game_type_choice = st.selectbox(
                 "Game Type",
@@ -1795,6 +1806,8 @@ with T[idx["Old World League"]]:
                 player_2_name = player_id_to_name.get(player_2_id, player_2_label)
                 player_1_faction = None if player_1_faction_choice == "-None-" else player_1_faction_choice
                 player_2_faction = None if player_2_faction_choice == "-None-" else player_2_faction_choice
+                player_1_painting_bonus = None if player_1_painting_bonus_choice == "-None-" else player_1_painting_bonus_choice
+                player_2_painting_bonus = None if player_2_painting_bonus_choice == "-None-" else player_2_painting_bonus_choice
 
                 ensure_league_results_table()
 
@@ -1806,6 +1819,8 @@ with T[idx["Old World League"]]:
                         player_2_name=player_2_name,
                         player_1_faction=player_1_faction,
                         player_2_faction=player_2_faction,
+                        player_1_painting_bonus=player_1_painting_bonus,
+                        player_2_painting_bonus=player_2_painting_bonus,
                         game_type=game_type_choice,
                         result=result_choice,
                         result_date=uk_date_str(date.today()),

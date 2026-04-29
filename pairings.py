@@ -580,7 +580,7 @@ def league_rankings_rows() -> List[dict]:
     return [
         {
             "Rank": idx + 1,
-            "ELO": round(r.rating, 1),
+            "ELO": round(r.rating),
             "Name": r.player_name,
             "Most Played Faction": faction_map.get(r.player_id, "—"),
             "Games Played": games_played_map.get(r.player_id, 0),

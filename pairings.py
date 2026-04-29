@@ -323,6 +323,9 @@ class LeagueResult(SQLModel, table=True):
     player_2_name: str
     result: str
     result_date: str
+    player_1_faction: Optional[str] = None
+    player_2_faction: Optional[str] = None
+    game_type: str = "Competitive"  # "Casual" => K=10; "Competitive" => K=40
 
     # ELO snapshots. These are recalculated from full league history whenever
     # results are added/deleted, so corrections stay consistent.
@@ -391,6 +394,9 @@ def ensure_league_results_table() -> None:
                     "player_1_rating_after": "REAL",
                     "player_2_rating_after": "REAL",
                     "k_factor_used": "INTEGER",
+                    "player_1_faction": "TEXT",
+                    "player_2_faction": "TEXT",
+                    "game_type": "TEXT DEFAULT 'Competitive'",
                 }
                 for col, col_type in sqlite_additions.items():
                     if col not in existing_cols:
@@ -401,6 +407,9 @@ def ensure_league_results_table() -> None:
                 conn.exec_driver_sql('ALTER TABLE league_results ADD COLUMN IF NOT EXISTS player_1_rating_after DOUBLE PRECISION')
                 conn.exec_driver_sql('ALTER TABLE league_results ADD COLUMN IF NOT EXISTS player_2_rating_after DOUBLE PRECISION')
                 conn.exec_driver_sql('ALTER TABLE league_results ADD COLUMN IF NOT EXISTS k_factor_used INTEGER')
+                conn.exec_driver_sql("ALTER TABLE league_results ADD COLUMN IF NOT EXISTS player_1_faction TEXT")
+                conn.exec_driver_sql("ALTER TABLE league_results ADD COLUMN IF NOT EXISTS player_2_faction TEXT")
+                conn.exec_driver_sql("ALTER TABLE league_results ADD COLUMN IF NOT EXISTS game_type TEXT DEFAULT 'Competitive'")
             conn.commit()
     except Exception:
         # If migration fails, the later read/write will surface the DB-specific error.
@@ -409,7 +418,9 @@ def ensure_league_results_table() -> None:
 ensure_league_results_table()
 
 LEAGUE_BASE_RATING = 1000.0
-LEAGUE_K_FACTOR = 40
+LEAGUE_CASUAL_K_FACTOR = 10
+LEAGUE_COMPETITIVE_K_FACTOR = 40
+LEAGUE_K_FACTOR = LEAGUE_COMPETITIVE_K_FACTOR
 
 def league_expected_score(r_player: float, r_opponent: float) -> float:
     return 1.0 / (1.0 + 10 ** ((r_opponent - r_player) / 400.0))
@@ -425,6 +436,9 @@ def _score_for_player_1(result: str) -> float:
     if result == "Player 2 Victory":
         return 0.0
     return 0.5
+
+def _league_k_for_game_type(game_type: Optional[str]) -> int:
+    return LEAGUE_CASUAL_K_FACTOR if (game_type or "").strip().lower() == "casual" else LEAGUE_COMPETITIVE_K_FACTOR
 
 def recalc_league_ratings() -> None:
     """Rebuild Old World League ratings and per-game snapshots from submitted results."""
@@ -449,13 +463,16 @@ def recalc_league_ratings() -> None:
 
             before_1 = ratings[p1]
             before_2 = ratings[p2]
-            after_1, after_2 = update_league_elo(before_1, before_2, _score_for_player_1(lr.result), LEAGUE_K_FACTOR)
+            game_type = (getattr(lr, "game_type", None) or "Competitive").strip() or "Competitive"
+            k_used = _league_k_for_game_type(game_type)
+            after_1, after_2 = update_league_elo(before_1, before_2, _score_for_player_1(lr.result), k_used)
 
+            lr.game_type = game_type
             lr.player_1_rating_before = before_1
             lr.player_2_rating_before = before_2
             lr.player_1_rating_after = after_1
             lr.player_2_rating_after = after_2
-            lr.k_factor_used = LEAGUE_K_FACTOR
+            lr.k_factor_used = k_used
 
             ratings[p1] = after_1
             ratings[p2] = after_2
@@ -469,16 +486,44 @@ def recalc_league_ratings() -> None:
             s.add(LeagueRating(player_id=pid, player_name=names.get(pid, f"Player #{pid}"), rating=rating, updated_at=datetime.utcnow()))
         s.commit()
 
-def _league_most_played_factions() -> Dict[int, str]:
-    """Best available faction signal for league rankings, based on TOW signup history."""
+def _league_faction_and_games_maps() -> Tuple[Dict[int, str], Dict[int, int]]:
+    """Return league-only most-played faction and games played maps.
+
+    Faction counts come only from submitted Old World League results. Ties are
+    resolved by whichever tied faction was used most recently in league data.
+    """
+    ensure_league_results_table()
     with Session(engine) as s:
-        counts: Dict[int, Dict[str, int]] = {}
-        signups = s.exec(select(Signup).where(Signup.system == "TOW")).all()
-        for su in signups:
-            if su.player_id is None or not su.faction:
+        results = s.exec(select(LeagueResult).order_by(LeagueResult.id)).all()
+
+    faction_counts: Dict[int, Dict[str, int]] = {}
+    faction_last_seen: Dict[Tuple[int, str], int] = {}
+    games_played: Dict[int, int] = {}
+
+    for lr in results:
+        row_id = int(lr.id or 0)
+        for pid, faction in [
+            (lr.player_1_id, getattr(lr, "player_1_faction", None)),
+            (lr.player_2_id, getattr(lr, "player_2_faction", None)),
+        ]:
+            if pid is None:
                 continue
-            counts.setdefault(int(su.player_id), {})[su.faction] = counts.setdefault(int(su.player_id), {}).get(su.faction, 0) + 1
-    return {pid: sorted(facs.items(), key=lambda kv: (-kv[1], kv[0]))[0][0] for pid, facs in counts.items() if facs}
+            pid_int = int(pid)
+            games_played[pid_int] = games_played.get(pid_int, 0) + 1
+            faction_clean = (faction or "").strip()
+            if not faction_clean:
+                continue
+            faction_counts.setdefault(pid_int, {})[faction_clean] = faction_counts.setdefault(pid_int, {}).get(faction_clean, 0) + 1
+            faction_last_seen[(pid_int, faction_clean)] = max(faction_last_seen.get((pid_int, faction_clean), 0), row_id)
+
+    faction_map: Dict[int, str] = {}
+    for pid, facs in faction_counts.items():
+        faction_map[pid] = sorted(
+            facs.items(),
+            key=lambda kv: (-kv[1], -faction_last_seen.get((pid, kv[0]), 0), kv[0]),
+        )[0][0]
+
+    return faction_map, games_played
 
 def league_rankings_rows() -> List[dict]:
     ensure_league_results_table()
@@ -490,13 +535,14 @@ def league_rankings_rows() -> List[dict]:
         with Session(engine) as s:
             ratings = s.exec(select(LeagueRating).order_by(LeagueRating.rating.desc(), LeagueRating.player_name)).all()
 
-    faction_map = _league_most_played_factions()
+    faction_map, games_played_map = _league_faction_and_games_maps()
     return [
         {
             "Rank": idx + 1,
             "ELO": round(r.rating, 1),
             "Name": r.player_name,
             "Most Played Faction": faction_map.get(r.player_id, "—"),
+            "Games Played": games_played_map.get(r.player_id, 0),
         }
         for idx, r in enumerate(ratings)
     ]
@@ -1633,7 +1679,7 @@ with T[idx["Old World League"]]:
     if league_rows:
         st.dataframe(league_rows, width='stretch', hide_index=True)
     else:
-        empty_league = pd.DataFrame(columns=["Rank", "ELO", "Name", "Most Played Faction"])
+        empty_league = pd.DataFrame(columns=["Rank", "ELO", "Name", "Most Played Faction", "Games Played"])
         st.dataframe(empty_league, width='stretch', hide_index=True)
         st.info("League rankings will appear here once league results have been submitted.")
 
@@ -1649,13 +1695,23 @@ with T[idx["Old World League"]]:
     if len(player_label_options) > 1:
         with st.form("old_world_league_result_form", clear_on_submit=True):
             c1, c_vs, c2 = st.columns([2, 0.35, 2])
+            league_faction_options = ["-None-", *PLACEHOLDER_FACTIONS]
             with c1:
                 player_1_label = st.selectbox("Player 1", player_label_options, index=0, key="owl_results_player_1")
+                player_1_faction_choice = st.selectbox("Player 1 faction", league_faction_options, index=0, key="owl_results_player_1_faction")
             with c_vs:
                 st.markdown("<div style='text-align:center;font-weight:700;padding-top:2.1rem'>vs</div>", unsafe_allow_html=True)
             with c2:
                 player_2_label = st.selectbox("Player 2", player_label_options, index=0, key="owl_results_player_2")
+                player_2_faction_choice = st.selectbox("Player 2 faction", league_faction_options, index=0, key="owl_results_player_2_faction")
 
+            game_type_choice = st.selectbox(
+                "Game Type",
+                ["Casual", "Competitive"],
+                index=1,
+                key="owl_results_game_type",
+                help="Casual uses K=10; Competitive uses K=40 for ELO changes.",
+            )
             result_choice = st.selectbox(
                 "Result",
                 ["Player 1 Victory", "Player 2 Victory", "Draw"],
@@ -1674,6 +1730,8 @@ with T[idx["Old World League"]]:
                 player_2_id = player_label_to_id.get(player_2_label)
                 player_1_name = player_id_to_name.get(player_1_id, player_1_label)
                 player_2_name = player_id_to_name.get(player_2_id, player_2_label)
+                player_1_faction = None if player_1_faction_choice == "-None-" else player_1_faction_choice
+                player_2_faction = None if player_2_faction_choice == "-None-" else player_2_faction_choice
 
                 ensure_league_results_table()
 
@@ -1683,6 +1741,9 @@ with T[idx["Old World League"]]:
                         player_1_name=player_1_name,
                         player_2_id=player_2_id,
                         player_2_name=player_2_name,
+                        player_1_faction=player_1_faction,
+                        player_2_faction=player_2_faction,
+                        game_type=game_type_choice,
                         result=result_choice,
                         result_date=uk_date_str(date.today()),
                     )
@@ -2198,8 +2259,11 @@ if "League" in idx:
                 {
                     "Game Number": lr.id,
                     "Player 1": lr.player_1_name,
+                    "P1 Faction": getattr(lr, "player_1_faction", None),
                     "Player 2": lr.player_2_name,
+                    "P2 Faction": getattr(lr, "player_2_faction", None),
                     "Result": lr.result,
+                    "Game Type": getattr(lr, "game_type", None) or "Competitive",
                     "Date": lr.result_date,
                     "P1 Before": round(lr.player_1_rating_before, 1) if lr.player_1_rating_before is not None else None,
                     "P2 Before": round(lr.player_2_rating_before, 1) if lr.player_2_rating_before is not None else None,

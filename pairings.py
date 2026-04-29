@@ -1738,8 +1738,6 @@ with T[idx["Pairings"]]:
 
 # --------------- Public: Old World League ---------------
 with T[idx["Old World League"]]:
-    st.subheader("Old World League")
-
     st.markdown("### League Rankings")
     league_rows = league_rankings_rows()
     if league_rows:

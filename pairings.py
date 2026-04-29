@@ -1178,6 +1178,7 @@ def previous_pairs_recent(system: str, current_week: str, max_weeks: int = 2) ->
 
 
 
+@dataclass
 class MatcherSignup:
     row: Signup
     key: str  # normalized unique key (player name)
@@ -1635,24 +1636,60 @@ with T[idx["Call to Arms"]]:
                     s.add(pl); s.commit(); s.refresh(pl)
 
             faction = None if faction_choice == "— None —" else faction_choice
+            week_clean = week_val.strip()
 
-            su = Signup(
-                week=week_val.strip(), system=system,
-                player_id=pl.id, player_name=pl.name,
-                faction=faction, points=int(pts), eta=eta.strip() or None,
-                experience=exp, vibe=vibe,
-                standby_ok=standby, tnt_ok=tnt,
-                scenario=scenario, can_demo=can_demo
-            )
-            s.add(su); s.commit()
+            # Prevent accidental duplicate signups for the same player/week/system.
+            # If the player already has a signup, update the latest row instead
+            # of inserting a second row; remove older duplicates for this same key.
+            existing_signups = s.exec(
+                select(Signup)
+                .where(
+                    (Signup.week == week_clean)
+                    & (Signup.system == system)
+                    & (Signup.player_id == pl.id)
+                )
+                .order_by(Signup.id.desc())
+            ).all()
+
+            created_new_signup = not bool(existing_signups)
+            if existing_signups:
+                su = existing_signups[0]
+                for duplicate_su in existing_signups[1:]:
+                    s.delete(duplicate_su)
+                su.player_name = pl.name
+                su.faction = faction
+                su.points = int(pts)
+                su.eta = eta.strip() or None
+                su.experience = exp
+                su.vibe = vibe
+                su.standby_ok = standby
+                su.tnt_ok = tnt
+                su.scenario = scenario
+                su.can_demo = can_demo
+                s.add(su)
+            else:
+                su = Signup(
+                    week=week_clean, system=system,
+                    player_id=pl.id, player_name=pl.name,
+                    faction=faction, points=int(pts), eta=eta.strip() or None,
+                    experience=exp, vibe=vibe,
+                    standby_ok=standby, tnt_ok=tnt,
+                    scenario=scenario, can_demo=can_demo
+                )
+                s.add(su)
+
+            s.commit()
             invalidate_app_caches()
 
             player_name_for_webhook = pl.name
 
-        # Discord notification for TOW signups
-        post_discord_signup(player_name_for_webhook, faction, vibe, system, week_val.strip())
-
-        st.success("Thanks! You're on the list.")
+        # Discord notification for TOW signups: only send for a brand-new signup,
+        # not for an accidental double-click/update of an existing row.
+        if created_new_signup:
+            post_discord_signup(player_name_for_webhook, faction, vibe, system, week_val.strip())
+            st.success("Thanks! You're on the list.")
+        else:
+            st.success("Your existing signup for this week has been updated.")
 
     st.markdown("### Need to drop out?")
     if not _is_new and selected_player_label and selected_player_label in _label_to_id:
@@ -1828,25 +1865,47 @@ with T[idx["Old World League"]]:
                 player_2_painting_bonus = None if player_2_painting_bonus_choice == "-None-" else player_2_painting_bonus_choice
 
                 ensure_league_results_table()
+                result_date_clean = uk_date_str(date.today())
 
                 with Session(engine) as s:
-                    lr = LeagueResult(
-                        player_1_id=player_1_id,
-                        player_1_name=player_1_name,
-                        player_2_id=player_2_id,
-                        player_2_name=player_2_name,
-                        player_1_faction=player_1_faction,
-                        player_2_faction=player_2_faction,
-                        player_1_painting_bonus=player_1_painting_bonus,
-                        player_2_painting_bonus=player_2_painting_bonus,
-                        game_type=game_type_choice,
-                        result=result_choice,
-                        result_date=uk_date_str(date.today()),
-                    )
-                    s.add(lr)
-                    s.commit()
-                recalc_league_ratings()
-                st.success("League result submitted and ELO rankings recalculated.")
+                    # Guard against accidental double-clicks: if this exact
+                    # league result has already been submitted today, do not
+                    # create a second copy. Different results or rematches can
+                    # still be submitted intentionally.
+                    existing_result = s.exec(
+                        select(LeagueResult).where(
+                            (LeagueResult.player_1_id == player_1_id)
+                            & (LeagueResult.player_2_id == player_2_id)
+                            & (LeagueResult.result == result_choice)
+                            & (LeagueResult.result_date == result_date_clean)
+                            & (LeagueResult.player_1_faction == player_1_faction)
+                            & (LeagueResult.player_2_faction == player_2_faction)
+                            & (LeagueResult.player_1_painting_bonus == player_1_painting_bonus)
+                            & (LeagueResult.player_2_painting_bonus == player_2_painting_bonus)
+                            & (LeagueResult.game_type == game_type_choice)
+                        )
+                    ).first()
+
+                    if existing_result:
+                        st.info("This exact league result has already been submitted, so a duplicate was not created.")
+                    else:
+                        lr = LeagueResult(
+                            player_1_id=player_1_id,
+                            player_1_name=player_1_name,
+                            player_2_id=player_2_id,
+                            player_2_name=player_2_name,
+                            player_1_faction=player_1_faction,
+                            player_2_faction=player_2_faction,
+                            player_1_painting_bonus=player_1_painting_bonus,
+                            player_2_painting_bonus=player_2_painting_bonus,
+                            game_type=game_type_choice,
+                            result=result_choice,
+                            result_date=result_date_clean,
+                        )
+                        s.add(lr)
+                        s.commit()
+                        recalc_league_ratings()
+                        st.success("League result submitted and ELO rankings recalculated.")
     else:
         st.info("No player profiles found yet. Add players via the signup flow first.")
 

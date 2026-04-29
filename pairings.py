@@ -3,14 +3,21 @@ Call to Arms
 """
 
 from __future__ import annotations
+
+import base64
+import io
+import json
+import math
+import os
+import random
 from dataclasses import dataclass
-from datetime import datetime, date, timedelta, time
-from typing import Optional, Dict, List, Tuple, Set, Literal, Iterable
-import os, base64, math, json, random, io
-import requests
-import pandas as pd
-from table2ascii import table2ascii as t2a, PresetStyle
+from datetime import date, datetime, time, timedelta
+from typing import Dict, Iterable, List, Literal, Optional, Set, Tuple
+
 import matplotlib.pyplot as plt
+import pandas as pd
+import requests
+from table2ascii import table2ascii as t2a, PresetStyle
 
 import streamlit as st
 
@@ -233,15 +240,15 @@ def _public_vibe_display(a_v, b_v):
     if av_l == "intro" or bv_l == "intro":
         return "Intro"
 
+    # Both 'Either' → show 'Either'
+    if av_l == "either" and bv_l == "either":
+        return "Either"
+
     # 'Either' adopts the other player's vibe
     if av_l == "either" and bv:
         return bv
     if bv_l == "either" and av:
         return av
-
-    # Both 'Either' → show 'Either'
-    if av_l == "either" and bv_l == "either":
-        return "Either"
 
     # Otherwise prefer A's vibe, falling back to B's, then blank
     return av or bv or ""
@@ -521,7 +528,7 @@ def recalc_league_ratings() -> None:
 
     invalidate_app_caches()
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def _league_faction_and_games_maps() -> Tuple[Dict[int, str], Dict[int, int]]:
     ensure_league_results_table()
     with Session(engine) as s:
@@ -544,7 +551,8 @@ def _league_faction_and_games_maps() -> Tuple[Dict[int, str], Dict[int, int]]:
             faction_clean = (faction or "").strip()
             if not faction_clean:
                 continue
-            faction_counts.setdefault(pid_int, {})[faction_clean] = faction_counts.setdefault(pid_int, {}).get(faction_clean, 0) + 1
+            pid_factions = faction_counts.setdefault(pid_int, {})
+            pid_factions[faction_clean] = pid_factions.get(faction_clean, 0) + 1
             faction_last_seen[(pid_int, faction_clean)] = max(faction_last_seen.get((pid_int, faction_clean), 0), row_id)
 
     faction_map: Dict[int, str] = {}
@@ -556,7 +564,7 @@ def _league_faction_and_games_maps() -> Tuple[Dict[int, str], Dict[int, int]]:
 
     return faction_map, games_played
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def league_rankings_rows() -> List[dict]:
     ensure_league_results_table()
     with Session(engine) as s:
@@ -580,7 +588,7 @@ def league_rankings_rows() -> List[dict]:
         for idx, r in enumerate(ratings)
     ]
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def league_submitted_games_rows() -> List[dict]:
     ensure_league_results_table()
     with Session(engine) as s:
@@ -609,7 +617,7 @@ def league_submitted_games_rows() -> List[dict]:
         for lr in league_results
     ]
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def all_players_snapshot() -> List[dict]:
     with Session(engine) as s:
         players = s.exec(select(Player).order_by(Player.id)).all()
@@ -623,7 +631,7 @@ def all_players_snapshot() -> List[dict]:
             if p.id is not None and (p.name or "").strip()
         ]
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def active_players_snapshot() -> List[dict]:
     return [p for p in all_players_snapshot() if p.get("active", True)]
 
@@ -656,7 +664,6 @@ def _img_html_from_secret_or_file(primary_url: str, local_names, width: int, alt
             if os.path.exists(p):
                 try:
                     with open(p, 'rb') as f:
-                        import base64
                         b64 = base64.b64encode(f.read()).decode()
                     ext = p.lower().split('.')[-1]
                     mime = 'image/png' if ext == 'png' else 'image/jpeg'
@@ -699,12 +706,11 @@ def render_header():
             lp = _find_logo_path()
             if lp:
                 with open(lp, "rb") as f:
-                    import base64
                     encoded = base64.b64encode(f.read()).decode()
                 ext = lp.lower().split(".")[-1]
                 mime = "image/png" if ext == "png" else "image/jpeg"
                 logo_html = f"<img src='data:{mime};base64,{encoded}' alt='Logo' width='{LOGO_WIDTH}'/>"
-        header_html = f"{logo_html}"
+        header_html = logo_html
     else:
         header_html = f"<div style='display:flex;gap:24px;align-items:center;justify-content:center;flex-wrap:wrap'>{tow_img}{hh_img}</div>"
 
@@ -1043,6 +1049,38 @@ def run_scheduled_tow_call_to_arms() -> None:
 
     # Use the default upcoming Wednesday
     post_tow_call_to_arms_with_image(scenario)
+def _parse_eta(sval) -> Optional[time]:
+    """Parse an HH:MM string to a time object, returning None on failure."""
+    if not sval:
+        return None
+    try:
+        return datetime.strptime(str(sval).strip(), "%H:%M").time()
+    except Exception:
+        return None
+
+
+def _eta_show_for_pair(a_su, b_su) -> Optional[str]:
+    """Return the later ETA of two signups as 'HH:MM', or None if both are absent."""
+    ta = _parse_eta(a_su.eta if a_su else None)
+    tb = _parse_eta(b_su.eta if b_su else None)
+    if ta and tb:
+        return max(ta, tb).strftime("%H:%M")
+    if ta:
+        return ta.strftime("%H:%M")
+    if tb:
+        return tb.strftime("%H:%M")
+    return None
+
+
+def _pts_show_for_pair(a_su, b_su) -> Optional[int]:
+    """Return the lower points value of two signups, or None if neither has points."""
+    vals = [
+        su.points for su in (a_su, b_su)
+        if su is not None and isinstance(su.points, int)
+    ]
+    return min(vals) if vals else None
+
+
 def uk_date_str(d: date) -> str:
     return d.strftime("%d/%m/%Y")
 
@@ -1081,7 +1119,7 @@ def parse_week_id(week_str: str) -> date:
 
 
 # ---- Cache helpers ----
-@st.cache_data(ttl=180)
+@st.cache_data(ttl=300)
 def player_name_map() -> Dict[int, str]:
     with Session(engine) as s:
         return {p.id: p.name for p in s.exec(select(Player)).all()}
@@ -1091,7 +1129,7 @@ def player_name_map() -> Dict[int, str]:
 def _normalize_name(n: str) -> str:
     return " ".join(n.strip().split())
 
-@st.cache_data(ttl=180)
+@st.cache_data(ttl=300)
 def previous_pairs_recent(system: str, current_week: str, max_weeks: int = 2) -> Set[Tuple[str, str]]:
     """Return unordered player pairs who have played each other within the last `max_weeks` weeks for this system."""
     try:
@@ -1100,8 +1138,11 @@ def previous_pairs_recent(system: str, current_week: str, max_weeks: int = 2) ->
         return set()
 
     with Session(engine) as s:
-        out: Set[Tuple[str, str]] = set()
+        # Load all pairings for the system in one query, then filter in Python
         prs = s.exec(select(Pairing).where(Pairing.system == system)).all()
+
+        # Keep only recent paired (non-BYE) pairings — filter before touching Signup table
+        recent_prs = []
         for pr in prs:
             if pr.b_signup_id is None:
                 continue
@@ -1109,23 +1150,34 @@ def previous_pairs_recent(system: str, current_week: str, max_weeks: int = 2) ->
                 pr_week_dt = parse_week_id(pr.week)
             except Exception:
                 continue
-            weeks_apart = abs((current_dt - pr_week_dt).days) // 7
-            if weeks_apart > max_weeks:
-                continue
-            a = s.get(Signup, pr.a_signup_id)
-            b = s.get(Signup, pr.b_signup_id)
+            if abs((current_dt - pr_week_dt).days) // 7 <= max_weeks:
+                recent_prs.append(pr)
+
+        if not recent_prs:
+            return set()
+
+        # Batch-fetch all relevant Signup rows in one query (fixes N+1)
+        signup_ids = {pr.a_signup_id for pr in recent_prs} | {pr.b_signup_id for pr in recent_prs}
+        signup_by_id = {
+            su.id: su
+            for su in s.exec(select(Signup).where(Signup.id.in_(signup_ids))).all()
+        }
+
+        out: Set[Tuple[str, str]] = set()
+        for pr in recent_prs:
+            a = signup_by_id.get(pr.a_signup_id)
+            b = signup_by_id.get(pr.b_signup_id)
             if not a or not b:
                 continue
-            na, nb = _normalize_name(a.player_name).lower(), _normalize_name(b.player_name).lower()
+            na = _normalize_name(a.player_name).lower()
+            nb = _normalize_name(b.player_name).lower()
             if na == nb:
                 continue
-            a1, a2 = sorted([na, nb])
-            out.add((a1, a2))
+            out.add(tuple(sorted([na, nb])))
         return out
 
-from dataclasses import dataclass
 
-@dataclass
+
 class MatcherSignup:
     row: Signup
     key: str  # normalized unique key (player name)
@@ -1221,7 +1273,7 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
 
         seen_pairs = previous_pairs_recent(system, week, max_weeks=2)
         used: Set[str] = set()
-        out: List[Pairing] = intro_pairs if "intro_pairs" in locals() else []
+        out: List[Pairing] = intro_pairs
 
         def has_played(x: str, y: str) -> bool:
             a,b = sorted([x,y])
@@ -1293,58 +1345,45 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
                 return 1
             return 2
 
+        def _pair_dist(ms, other):
+            """Compute the lexicographic distance tuple used for greedy matching."""
+            dv_base = abs(ms.preference[0] - other.preference[0])
+            dv = _vibe_distance_override(ms.row, other.row, dv_base)
+            de = abs(ms.preference[1] - other.preference[1])
+            dp = abs(ms.preference[2] - other.preference[2])
+            eta_b = _eta_bucket_diff(ms.row, other.row)
+            scen_d = _scenario_diff_tow(ms.row, other.row, system)
+            mir = _mirror_flag(ms.row, other.row)
+            esc_p = _escalation_priority_penalty(ms.row, other.row, system)
+            return (esc_p, mir, eta_b, scen_d, dv, de, dp)
+
         for i, ms in enumerate(candidates):
             if ms.key in used:
                 continue
-            # find best candidate not used, minimal "distance"
+            # Find best candidate not used, minimal "distance"
             best_j = None
-            # lexicographic over (mirror, scenario, ETA bucket, vibe, experience, points)
             best_dist = (99, 99, 99, 99, 99, 99, 99)
             for j in range(i+1, len(candidates)):
                 other = candidates[j]
-                if other.key in used:
+                if other.key in used or has_played(ms.key, other.key):
                     continue
-                # avoid rematch if we can
-                if has_played(ms.key, other.key):
-                    continue
-                # distance over preference tuple, with soft penalties for mirror, scenario mismatch, and ETA gap
-                dv_base = abs(ms.preference[0] - other.preference[0])
-                dv = _vibe_distance_override(ms.row, other.row, dv_base)
-                de = abs(ms.preference[1] - other.preference[1])
-                dp = abs(ms.preference[2] - other.preference[2])
-                eta_b = _eta_bucket_diff(ms.row, other.row)
-                scen_d = _scenario_diff_tow(ms.row, other.row, system)
-                mir = _mirror_flag(ms.row, other.row)
-                esc_p = _escalation_priority_penalty(ms.row, other.row, system)
-                dist = (esc_p, mir, eta_b, scen_d, dv, de, dp)
+                dist = _pair_dist(ms, other)
                 if dist < best_dist:
                     best_dist = dist
                     best_j = j
-                    # early perfect break
-                    if dist == (0,0,0):
+                    if dist == (0, 0, 0, 0, 0, 0, 0):
                         break
-            # if no non-rematch found, allow a rematch if permitted
+            # If no non-rematch found, allow a rematch if permitted
             if best_j is None and allow_repeats_when_needed:
                 for j in range(i+1, len(candidates)):
                     other = candidates[j]
                     if other.key in used:
                         continue
-                    # still avoid very recent rematches (within the configured recent window)
-                    if has_played(ms.key, other.key):
-                        continue
-                    dv_base = abs(ms.preference[0] - other.preference[0])
-                    dv = _vibe_distance_override(ms.row, other.row, dv_base)
-                    de = abs(ms.preference[1] - other.preference[1])
-                    dp = abs(ms.preference[2] - other.preference[2])
-                    eta_b = _eta_bucket_diff(ms.row, other.row)
-                    scen_d = _scenario_diff_tow(ms.row, other.row, system)
-                    mir = _mirror_flag(ms.row, other.row)
-                    esc_p = _escalation_priority_penalty(ms.row, other.row, system)
-                    dist = (esc_p, mir, eta_b, scen_d, dv, de, dp)
+                    dist = _pair_dist(ms, other)
                     if dist < best_dist:
                         best_dist = dist
                         best_j = j
-                        if dist == (0,0,0):
+                        if dist == (0, 0, 0, 0, 0, 0, 0):
                             break
             if best_j is None:
                 # leave as BYE / potential T&T grouping
@@ -1668,97 +1707,60 @@ with T[idx["Pairings"]]:
         help="TOW uses the Wednesday date; Horus Heresy uses the Friday date."
     )
 
-    # Only show when published
+    # Fetch PublishState, Pairings, and Signups in a single session
     with Session(engine) as s:
-        gate = s.exec(select(PublishState).where((PublishState.week == week_lookup) & (PublishState.system == sys_pick))).first()
-
-    if not gate or not gate.published:
-        st.info("No pairings published yet for this week/system.")
-    else:
-        with Session(engine) as s:
-            prs = s.exec(select(Pairing).where((Pairing.week == week_lookup) & (Pairing.system == sys_pick)).order_by(Pairing.id)).all()
-        if not prs:
-            st.info("No pairings yet.")
-        else:
-            with Session(engine) as s:
-
-                def _public_vibe_display(a_v, b_v):
-                    av = (a_v or "").strip()
-                    bv = (b_v or "").strip()
-                    av_l = av.lower()
-                    bv_l = bv.lower()
-
-                    if av_l == "intro" or bv_l == "intro":
-                        return "Intro"
-
-                    if av_l == "either" and bv:
-                        return bv
-
-                    if bv_l == "either" and av:
-                        return av
-
-                    if av_l == "either" and bv_l == "either":
-                        return "Either"
-
-                    return av or bv or ""
-
-                signup_ids = {p.a_signup_id for p in prs}
-                signup_ids.update({p.b_signup_id for p in prs if p.b_signup_id})
+        gate = s.exec(
+            select(PublishState).where(
+                (PublishState.week == week_lookup) & (PublishState.system == sys_pick)
+            )
+        ).first()
+        if gate and gate.published:
+            prs = s.exec(
+                select(Pairing)
+                .where((Pairing.week == week_lookup) & (Pairing.system == sys_pick))
+                .order_by(Pairing.id)
+            ).all()
+            if prs:
+                signup_ids = {p.a_signup_id for p in prs} | {p.b_signup_id for p in prs if p.b_signup_id}
                 signup_by_id = {
                     su.id: su
                     for su in s.exec(select(Signup).where(Signup.id.in_(signup_ids))).all()
                 } if signup_ids else {}
+            else:
+                signup_by_id = {}
+        else:
+            prs = []
+            signup_by_id = {}
 
-                rows = []
-                for p in prs:
-                    a = signup_by_id.get(p.a_signup_id)
-                    b = signup_by_id.get(p.b_signup_id) if p.b_signup_id else None
+    if not gate or not gate.published:
+        st.info("No pairings published yet for this week/system.")
+    elif not prs:
+        st.info("No pairings yet.")
+    else:
+        tnt_names = set(TNT_SUGGESTIONS.get((week_lookup, sys_pick), []))
+        rows = []
+        for p in prs:
+            a = signup_by_id.get(p.a_signup_id)
+            b = signup_by_id.get(p.b_signup_id) if p.b_signup_id else None
 
-                    # Compute ETA (later of two) and Points (lower of two)
-                    def _parse_eta(sval):
-                        if not sval:
-                            return None
-                        try:
-                            from datetime import datetime
-                            return datetime.strptime(str(sval).strip(), "%H:%M").time()
-                        except Exception:
-                            return None
+            eta_show = _eta_show_for_pair(a, b)
+            pts_show = _pts_show_for_pair(a, b)
 
-                    ta = _parse_eta(a.eta if a else None)
-                    tb = _parse_eta(b.eta if b else None)
-                    if ta and tb:
-                        eta_show = max(ta, tb).strftime("%H:%M")
-                    elif ta:
-                        eta_show = ta.strftime("%H:%M")
-                    elif tb:
-                        eta_show = tb.strftime("%H:%M")
-                    else:
-                        eta_show = None
+            type_pub = _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None))
+            if sys_pick == "TOW" and tnt_names:
+                if (a and a.player_name in tnt_names) or (b and b.player_name in tnt_names):
+                    type_pub = "T&T"
 
-                    pts_vals = []
-                    if a and isinstance(a.points, int):
-                        pts_vals.append(a.points)
-                    if b and isinstance(b.points, int):
-                        pts_vals.append(b.points)
-                    pts_show = min(pts_vals) if pts_vals else None
-
-                    # Determine public-facing Type, with cosmetic T&T override for suggested triples
-                    type_pub = _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None))
-                    tnt_names = set(TNT_SUGGESTIONS.get((week_lookup, sys_pick), []))
-                    if sys_pick == "TOW" and tnt_names:
-                        if (a and a.player_name in tnt_names) or (b and b.player_name in tnt_names):
-                            type_pub = "T&T"
-
-                    rows.append({
-                        "A": a.player_name if a else f"A#{p.a_signup_id}",
-                        "Faction A": p.a_faction or (a.faction if a else None),
-                        "B": (b.player_name if b else "— BYE / standby —"),
-                        "Faction B": (p.b_faction or (b.faction if b else None) if b else None),
-                        "Type": type_pub,
-                        "ETA": eta_show,
-                        "Points": pts_show
-                    })
-            st.dataframe(rows, width='stretch', hide_index=True)
+            rows.append({
+                "A": a.player_name if a else f"A#{p.a_signup_id}",
+                "Faction A": p.a_faction or (a.faction if a else None),
+                "B": (b.player_name if b else "— BYE / standby —"),
+                "Faction B": (p.b_faction or (b.faction if b else None) if b else None),
+                "Type": type_pub,
+                "ETA": eta_show,
+                "Points": pts_show
+            })
+        st.dataframe(rows, width='stretch', hide_index=True)
 
 # --------------- Public: Old World League ---------------
 with T[idx["Old World League"]]:
@@ -1866,7 +1868,6 @@ if "Signups" in idx:
         if not sus:
             st.info("No signups yet.")
         else:
-            import pandas as pd
             rows = [{
                 "ID": su.id,
                 "Name": su.player_name,
@@ -2026,18 +2027,21 @@ if "Weekly Pairings" in idx:
             help="TOW = Wednesday date; Horus Heresy = Friday date."
         )
 
-        # Publish controls
+        # Publish controls — fetch gate once; button handlers upsert then rerun (gate re-fetched on next render)
         with Session(engine) as s:
-            gate = s.exec(select(PublishState).where((PublishState.week == week_lookup) & (PublishState.system == sys_pick))).first()
-        col_p1, col_p2, col_p3 = st.columns([1,1,3])
+            gate = s.exec(
+                select(PublishState).where(
+                    (PublishState.week == week_lookup) & (PublishState.system == sys_pick)
+                )
+            ).first()
+
+        col_p1, col_p2, col_p3 = st.columns([1, 1, 3])
         with col_p1:
             if st.button("Publish to Public"):
                 with Session(engine) as s:
-                    g = s.exec(select(PublishState).where((PublishState.week == week_lookup) & (PublishState.system == sys_pick))).first()
-                    if not g:
-                        g = PublishState(week=week_lookup, system=sys_pick, published=True)
-                    else:
-                        g.published = True
+                    g = gate or PublishState(week=week_lookup, system=sys_pick)
+                    s.merge(g) if g.id else s.add(g)
+                    g.published = True
                     s.add(g); s.commit()
                 invalidate_app_caches()
                 st.success("Published.")
@@ -2045,11 +2049,8 @@ if "Weekly Pairings" in idx:
         with col_p2:
             if st.button("Unpublish"):
                 with Session(engine) as s:
-                    g = s.exec(select(PublishState).where((PublishState.week == week_lookup) & (PublishState.system == sys_pick))).first()
-                    if not g:
-                        g = PublishState(week=week_lookup, system=sys_pick, published=False)
-                    else:
-                        g.published = False
+                    g = gate or PublishState(week=week_lookup, system=sys_pick)
+                    g.published = False
                     s.add(g); s.commit()
                 invalidate_app_caches()
                 st.warning("Unpublished.")
@@ -2088,44 +2089,16 @@ if "Weekly Pairings" in idx:
 
             public_rows_for_discord: List[dict] = []
 
+            tnt_names = set(TNT_SUGGESTIONS.get((week_lookup, sys_pick), []))
             rows = []
             for p in prs:
                 a = signup_by_id.get(p.a_signup_id)
                 b = signup_by_id.get(p.b_signup_id) if p.b_signup_id else None
 
-                # Compute ETA (later of two) and Points (lower of two)
-                def _parse_eta_admin(sval):
-                    if not sval:
-                        return None
-                    try:
-                        from datetime import datetime
-                        return datetime.strptime(str(sval).strip(), "%H:%M").time()
-                    except Exception:
-                        return None
+                eta_show = _eta_show_for_pair(a, b)
+                pts_show = _pts_show_for_pair(a, b)
 
-                ta = _parse_eta_admin(a.eta if a else None)
-                tb = _parse_eta_admin(b.eta if b else None)
-                if ta and tb:
-                    eta_show = max(ta, tb).strftime("%H:%M")
-                elif ta:
-                    eta_show = ta.strftime("%H:%M")
-                elif tb:
-                    eta_show = tb.strftime("%H:%M")
-                else:
-                    eta_show = None
-
-                pts_vals = []
-                if a and isinstance(a.points, int):
-                    pts_vals.append(a.points)
-                if b and isinstance(b.points, int):
-                    pts_vals.append(b.points)
-                pts_show = min(pts_vals) if pts_vals else None
-
-              
-
-                # Determine public-facing Type, with cosmetic T&T override for suggested triples
                 type_show = _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None))
-                tnt_names = set(TNT_SUGGESTIONS.get((week_lookup, sys_pick), []))
                 if sys_pick == "TOW" and tnt_names:
                     if (a and a.player_name in tnt_names) or (b and b.player_name in tnt_names):
                         type_show = "T&T"
@@ -2390,14 +2363,6 @@ if "View History" in idx:
         else:
             with Session(engine) as s:
                 rows = []
-                def _parse_eta_hist(sval):
-                    if not sval:
-                        return None
-                    try:
-                        from datetime import datetime
-                        return datetime.strptime(str(sval).strip(), "%H:%M").time()
-                    except Exception:
-                        return None
 
                 limited_prs = prs[:limit]
                 signup_ids = {p.a_signup_id for p in limited_prs}
@@ -2411,23 +2376,8 @@ if "View History" in idx:
                     a = signup_by_id.get(p.a_signup_id)
                     b = signup_by_id.get(p.b_signup_id) if p.b_signup_id else None
 
-                    ta = _parse_eta_hist(a.eta if a else None)
-                    tb = _parse_eta_hist(b.eta if b else None)
-                    if ta and tb:
-                        eta_show = max(ta, tb).strftime("%H:%M")
-                    elif ta:
-                        eta_show = ta.strftime("%H:%M")
-                    elif tb:
-                        eta_show = tb.strftime("%H:%M")
-                    else:
-                        eta_show = None
-
-                    pts_vals = []
-                    if a and isinstance(a.points, int):
-                        pts_vals.append(a.points)
-                    if b and isinstance(b.points, int):
-                        pts_vals.append(b.points)
-                    pts_show = min(pts_vals) if pts_vals else None
+                    eta_show = _eta_show_for_pair(a, b)
+                    pts_show = _pts_show_for_pair(a, b)
 
                     rows.append({
                         "ID": p.id,
@@ -2443,7 +2393,6 @@ if "View History" in idx:
                         "Points": pts_show,
                     })
 
-            import pandas as pd
             df = pd.DataFrame(rows)
             st.dataframe(df, width='stretch', hide_index=True)
             csv = df.to_csv(index=False).encode("utf-8")

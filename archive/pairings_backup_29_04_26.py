@@ -453,6 +453,15 @@ def _score_for_player_1(result: str) -> float:
 def _league_k_for_game_type(game_type: Optional[str]) -> int:
     return LEAGUE_CASUAL_K_FACTOR if (game_type or "").strip().lower() == "casual" else LEAGUE_COMPETITIVE_K_FACTOR
 
+def _league_painting_bonus_score(painting_bonus: Optional[str]) -> int:
+    """Return the flat ELO bonus awarded for league painting status."""
+    label = (painting_bonus or "").strip().lower()
+    if label == "fully painted":
+        return 3
+    if label == "partially painted":
+        return 1
+    return 0
+
 def recalc_league_ratings() -> None:
     """Rebuild Old World League ratings and per-game snapshots from submitted results."""
     ensure_league_results_table()
@@ -479,6 +488,11 @@ def recalc_league_ratings() -> None:
             game_type = (getattr(lr, "game_type", None) or "Competitive").strip() or "Competitive"
             k_used = _league_k_for_game_type(game_type)
             after_1, after_2 = update_league_elo(before_1, before_2, _score_for_player_1(lr.result), k_used)
+
+            # Apply painting bonuses as flat additions after the standard ELO equation.
+            # "-None-"/blank = 0, Partially Painted = 1, Fully Painted = 3.
+            after_1 += _league_painting_bonus_score(getattr(lr, "player_1_painting_bonus", None))
+            after_2 += _league_painting_bonus_score(getattr(lr, "player_2_painting_bonus", None))
 
             lr.game_type = game_type
             lr.player_1_rating_before = before_1
@@ -578,9 +592,11 @@ def league_submitted_games_rows() -> List[dict]:
             "Player 1": lr.player_1_name,
             "P1 Faction": getattr(lr, "player_1_faction", None),
             "P1 Painting Bonus": getattr(lr, "player_1_painting_bonus", None),
+            "P1 Painting Score": _league_painting_bonus_score(getattr(lr, "player_1_painting_bonus", None)),
             "Player 2": lr.player_2_name,
             "P2 Faction": getattr(lr, "player_2_faction", None),
             "P2 Painting Bonus": getattr(lr, "player_2_painting_bonus", None),
+            "P2 Painting Score": _league_painting_bonus_score(getattr(lr, "player_2_painting_bonus", None)),
             "Result": lr.result,
             "Game Type": getattr(lr, "game_type", None) or "Competitive",
             "Date": lr.result_date,

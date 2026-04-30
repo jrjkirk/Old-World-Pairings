@@ -96,9 +96,55 @@ HH_FACTIONS: List[str] = [
 ]
 HH_FACTIONS_WITH_BLANK: List[str] = ["— None —", *HH_FACTIONS]
 
-# Kill Team factions (placeholder — update with real factions when available)
+# Kill Team factions
 KT_FACTIONS: List[str] = [
-    "Placeholder Faction",
+    "Angels Of Death",
+    "Battleclade",
+    "Blades Of Khaine",
+    "Blooded",
+    "Brood Brothers",
+    "Canoptek Circle",
+    "Celestian Insidiants",
+    "Chaos Cult",
+    "Corsair Voidscarred",
+    "Death Korps",
+    "Deathwatch",
+    "Elucidian Starstriders",
+    "Exaction Squad",
+    "Farstalker Kinband",
+    "Fellgor Ravagers",
+    "Gellerpox Infected",
+    "Goremongers",
+    "Hand Of The Archon",
+    "Hearthkyn Salvagers",
+    "Hernkyn Yaegirs",
+    "Hierotek Circle",
+    "Hunter Clade",
+    "Imperial Navy Breachers",
+    "Inquisitorial Agents",
+    "Kasrkin",
+    "Kommandos",
+    "Legionaries",
+    "Mandrakes",
+    "Murderwing",
+    "Nemesis Claw",
+    "Novitiates",
+    "Pathfinders",
+    "Phobos Strike Team",
+    "Plague Marines",
+    "Ratlings",
+    "Raveners",
+    "Sanctifiers",
+    "Scout Squad",
+    "Strike Force Variel",
+    "Tempestus Aquilon",
+    "Vespid Stingwings",
+    "Void-Dancer Troupe",
+    "Warp Coven",
+    "Wolf Scouts",
+    "Wrecka Krew",
+    "Wyrmblade",
+    "XV26 Stealth Battlesuits",
 ]
 KT_FACTIONS_WITH_BLANK: List[str] = ["— None —", *KT_FACTIONS]
 
@@ -1590,7 +1636,8 @@ with T[idx["Call to Arms"]]:
         if default_faction and default_faction in faction_options:
             faction_index = faction_options.index(default_faction)
 
-        faction_choice = st.selectbox("Your faction", faction_options, index=faction_index, key=f"signup_faction_{system}_{_key_suffix}")
+        faction_label = "Your Kill Team" if is_kt else "Your faction"
+        faction_choice = st.selectbox(faction_label, faction_options, index=faction_index, key=f"signup_faction_{system}_{_key_suffix}")
         # Points (not shown for Kill Team)
         if not is_kt:
             pts = st.number_input("Army points", min_value=0, max_value=10000, value=int(default_pts), step=50, key=f"signup_pts_{system}_{_key_suffix}")

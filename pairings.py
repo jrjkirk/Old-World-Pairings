@@ -56,7 +56,7 @@ DISCORD_LOGO_URL = _get_secret("DISCORD_LOGO_URL", "")
 DISCORD_SIGNUP_WEBHOOK_URL = _get_secret("DISCORD_SIGNUP_WEBHOOK_URL", "")
 DISCORD_CALL_TO_ARMS_WEBHOOK_URL = _get_secret("DISCORD_CALL_TO_ARMS_WEBHOOK_URL", "")
 DISCORD_PAIRINGS_WEBHOOK_URL = _get_secret("DISCORD_PAIRINGS_WEBHOOK_URL", "")
-SYSTEMS: List[str] = ["TOW", "Horus Heresy"]
+SYSTEMS: List[str] = ["TOW", "Horus Heresy", "Kill Team"]
 TNT_SUGGESTIONS = {}
 # Shared factions list can be tailored per-system later; re-using OW list as a baseline.
 PLACEHOLDER_FACTIONS: List[str] = [
@@ -95,6 +95,11 @@ HH_FACTIONS: List[str] = [
 ]
 HH_FACTIONS_WITH_BLANK: List[str] = ["— None —", *HH_FACTIONS]
 
+# Kill Team factions (placeholder — update with real factions when available)
+KT_FACTIONS: List[str] = [
+    "Placeholder Faction",
+]
+KT_FACTIONS_WITH_BLANK: List[str] = ["— None —", *KT_FACTIONS]
 
 
 # --- TOW Weekly Scenario Pool -------------------------------------------------
@@ -1098,17 +1103,17 @@ def week_id_wed(d: date) -> str:
 
 
 def week_id_fri(d: date) -> str:
-    """Friday identifier (DD/MM/YYYY) for Horus Heresy."""
+    """Friday identifier (DD/MM/YYYY) for Horus Heresy and Kill Team."""
     # 0 = Mon, 1 = Tue, ..., 4 = Fri
     days_ahead = (4 - d.weekday()) % 7
     friday = d + timedelta(days=days_ahead)
     return uk_date_str(friday)
 
 def week_id_for_system(system: str, d: date | None = None) -> str:
-    """Per-system game-day week id: TOW uses Wednesday, HH uses Friday."""
+    """Per-system game-day week id: TOW uses Wednesday, HH and Kill Team use Friday."""
     if d is None:
         d = date.today()
-    if system == "Horus Heresy":
+    if system in ("Horus Heresy", "Kill Team"):
         return week_id_fri(d)
     # Default to TOW behaviour
     return week_id_wed(d)
@@ -1225,7 +1230,7 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
         # --- Intro priority pass: match TOW "Intro" seekers with leaders first ---
         intro_pairs: List[Pairing] = []
         used_intro: Set[str] = set()
-        if system in ("TOW","Horus Heresy"):
+        if system in ("TOW","Horus Heresy"):  # Kill Team has no intro/demo mechanic
             seekers = [m for m in candidates if (m.row.vibe and m.row.vibe.lower() == "intro")]
             leaders = [m for m in candidates if m.row.can_demo]
             for seeker in seekers:
@@ -1351,7 +1356,8 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
             dv_base = abs(ms.preference[0] - other.preference[0])
             dv = _vibe_distance_override(ms.row, other.row, dv_base)
             de = abs(ms.preference[1] - other.preference[1])
-            dp = abs(ms.preference[2] - other.preference[2])
+            # Kill Team has no army points: zero the points bucket distance
+            dp = 0 if system == "Kill Team" else abs(ms.preference[2] - other.preference[2])
             eta_b = _eta_bucket_diff(ms.row, other.row)
             scen_d = _scenario_diff_tow(ms.row, other.row, system)
             mir = _mirror_flag(ms.row, other.row)
@@ -1478,7 +1484,7 @@ with T[idx["Call to Arms"]]:
             "Week (DD/MM/YYYY)",
             value=week_default,
             key=f"cta_week_{system}",
-            help="TOW uses Wednesday; Horus Heresy uses Friday as the week id."
+            help="TOW uses Wednesday; Horus Heresy and Kill Team use Friday as the week id."
         )
 
     st.divider()
@@ -1501,6 +1507,7 @@ with T[idx["Call to Arms"]]:
     last = ""
 
     is_hh = (system == "Horus Heresy")
+    is_kt = (system == "Kill Team")
 
     if not _is_new:
         selected_player_label = st.selectbox(
@@ -1566,6 +1573,8 @@ with T[idx["Call to Arms"]]:
         # Factions
         if is_hh:
             faction_options = HH_FACTIONS_WITH_BLANK
+        elif is_kt:
+            faction_options = KT_FACTIONS_WITH_BLANK
         else:
             faction_options = PLACEHOLDER_FACTIONS_WITH_BLANK
 
@@ -1574,10 +1583,13 @@ with T[idx["Call to Arms"]]:
             faction_index = faction_options.index(default_faction)
 
         faction_choice = st.selectbox("Your faction", faction_options, index=faction_index, key=f"signup_faction_{system}_{_key_suffix}")
-        # Points
-        pts = st.number_input("Army points", min_value=0, max_value=10000, value=int(default_pts), step=50, key=f"signup_pts_{system}_{_key_suffix}")
-        if not is_hh:
-            st.caption("If selecting an Escalation game, please input backup army points limit.")
+        # Points (not shown for Kill Team)
+        if not is_kt:
+            pts = st.number_input("Army points", min_value=0, max_value=10000, value=int(default_pts), step=50, key=f"signup_pts_{system}_{_key_suffix}")
+            if not is_hh:
+                st.caption("If selecting an Escalation game, please input backup army points limit.")
+        else:
+            pts = 0
         # ETA dropdown 17:00-19:30
         eta_options = []
         for h in [17,18,19]:
@@ -1591,28 +1603,35 @@ with T[idx["Call to Arms"]]:
         exp_options = ["New", "Some", "Veteran"]
         exp_index = exp_options.index(default_exp) if default_exp in exp_options else 0
         exp = st.selectbox("Experience", exp_options, index=exp_index, key=f"signup_exp_{system}_{_key_suffix}")
-        # Type of game
+        # Type of game (not shown for Kill Team)
         if is_hh:
             vibe_options = ["Standard", "Intro"]
+            vibe_index = vibe_options.index(default_vibe) if default_vibe in vibe_options else 0
+            vibe = st.selectbox("Type of game", vibe_options, index=vibe_index, key=f"signup_vibe_{system}_{_key_suffix}")
+        elif is_kt:
+            vibe = "Standard"
         else:
             vibe_options = ["Casual", "Competitive", "Escalation", "Intro", "Either"]
-
-        vibe_index = vibe_options.index(default_vibe) if default_vibe in vibe_options else 0
-        vibe = st.selectbox("Type of game", vibe_options, index=vibe_index, key=f"signup_vibe_{system}_{_key_suffix}")
+            vibe_index = vibe_options.index(default_vibe) if default_vibe in vibe_options else 0
+            vibe = st.selectbox("Type of game", vibe_options, index=vibe_index, key=f"signup_vibe_{system}_{_key_suffix}")
         standby = st.checkbox("I can be on standby", value=default_standby, key=f"signup_standby_{system}_{_key_suffix}")
         # Triumph & Treachery (TOW only)
-        if not is_hh:
+        if not is_hh and not is_kt:
             tnt = st.checkbox("I can play Triumph & Treachery (3-way)", value=default_tnt, key=f"signup_tnt_{system}_{_key_suffix}")
         else:
             tnt = False
         # Scenario (TOW only)
-        if not is_hh:
+        if not is_hh and not is_kt:
             scen_options = ["Open Battle", "Weekly Scenario"]
             scen_index = scen_options.index(default_scenario) if default_scenario in scen_options else 0
             scenario = st.selectbox("Scenario preference", scen_options, index=scen_index, key=f"signup_scenario_{system}_{_key_suffix}")
         else:
             scenario = None
-        can_demo = st.checkbox("I can lead an intro game", value=default_can_demo, key=f"signup_demo_{system}_{_key_suffix}")
+        # Intro game leadership (not shown for Kill Team)
+        if not is_kt:
+            can_demo = st.checkbox("I can lead an intro game", value=default_can_demo, key=f"signup_demo_{system}_{_key_suffix}")
+        else:
+            can_demo = False
 
         submitted = st.form_submit_button("Submit")
 
@@ -1741,7 +1760,7 @@ with T[idx["Pairings"]]:
         "Week (DD/MM/YYYY)",
         value=week_id_for_system(sys_pick, date.today()),
         key=f"pub_week_{sys_pick}",
-        help="TOW uses the Wednesday date; Horus Heresy uses the Friday date."
+        help="TOW uses the Wednesday date; Horus Heresy and Kill Team use the Friday date."
     )
 
     # Fetch PublishState, Pairings, and Signups in a single session
@@ -1920,7 +1939,7 @@ if "Signups" in idx:
             "Week",
             value=week_id_for_system(sys_pick, date.today()),
             key=f"adm_week_su_{sys_pick}",
-            help="TOW = Wednesday date; Horus Heresy = Friday date."
+            help="TOW = Wednesday date; Horus Heresy and Kill Team = Friday date."
         )
         with Session(engine) as s:
             sus = s.exec(select(Signup).where((Signup.week == week_lookup) & (Signup.system == sys_pick)).order_by(Signup.created_at)).all()
@@ -2007,7 +2026,7 @@ if "Generate Pairings" in idx:
                 "Week id",
                 value=week_id_for_system(sys_pick, date.today()),
                 key=f"adm_week_gen_{sys_pick}",
-                help="Game-day id (TOW: Wednesday; Horus Heresy: Friday)."
+                help="Game-day id (TOW: Wednesday; Horus Heresy and Kill Team: Friday)."
             )
 
         st.caption("Deletes existing **pending** pairings for that week+system before generating.")
@@ -2083,7 +2102,7 @@ if "Weekly Pairings" in idx:
             "Week",
             value=week_id_for_system(sys_pick, date.today()),
             key=f"adm_week_pairs_{sys_pick}",
-            help="TOW = Wednesday date; Horus Heresy = Friday date."
+            help="TOW = Wednesday date; Horus Heresy and Kill Team = Friday date."
         )
 
         # Publish controls — fetch gate once; button handlers upsert then rerun (gate re-fetched on next render)

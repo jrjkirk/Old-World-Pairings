@@ -57,7 +57,7 @@ DISCORD_LOGO_URL = _get_secret("DISCORD_LOGO_URL", "")
 DISCORD_SIGNUP_WEBHOOK_URL = _get_secret("DISCORD_SIGNUP_WEBHOOK_URL", "")
 DISCORD_CALL_TO_ARMS_WEBHOOK_URL = _get_secret("DISCORD_CALL_TO_ARMS_WEBHOOK_URL", "")
 DISCORD_PAIRINGS_WEBHOOK_URL = _get_secret("DISCORD_PAIRINGS_WEBHOOK_URL", "")
-SYSTEMS: List[str] = ["TOW", "Horus Heresy", "Kill Team"]
+SYSTEMS: List[str] = ["The Old World", "The Horus Heresy", "Kill Team"]
 TNT_SUGGESTIONS = {}
 # Shared factions list can be tailored per-system later; re-using OW list as a baseline.
 PLACEHOLDER_FACTIONS: List[str] = [
@@ -335,7 +335,7 @@ class Signup(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     week: str  # DD/MM/YYYY (system game-day id; TOW = Wed, HH = Fri)
-    system: str  # "TOW" | "Horus Heresy"
+    system: str  # "The Old World" | "The Horus Heresy"
 
     # Player link (by name or id); we'll soft-link by player_id + denormalised name for resilience
     player_id: Optional[int] = Field(default=None, index=True)
@@ -746,7 +746,7 @@ def render_header():
         LOGO_HH_URL,
         ['horus_heresy.png','horus_heresy.jpg','hh_logo.png','hh_logo.jpg','heresy.png','heresy.jpg'],
         HEADER_LOGO_WIDTH,
-        'Horus Heresy'
+        'The Horus Heresy'
     )
     kt_img = _img_html_from_secret_or_file(
         LOGO_KT_URL,
@@ -793,7 +793,7 @@ def _get_tow_signup_count(week_str: str) -> int:
     with Session(engine) as s:
         rows = s.exec(
             select(Signup).where(
-                (Signup.week == wk) & (Signup.system == "TOW")
+                (Signup.week == wk) & (Signup.system == "The Old World")
             )
         ).all()
         return len(rows)
@@ -801,7 +801,7 @@ def _get_tow_signup_count(week_str: str) -> int:
 
 def post_discord_signup(player_name: str, faction: Optional[str], vibe: Optional[str], system: str, week_str: str):
     """Post a minimal signup notification to Discord via webhook (TOW only)."""
-    if system != "TOW":
+    if system != "The Old World":
         return
     if not DISCORD_SIGNUP_WEBHOOK_URL:
         return
@@ -1167,7 +1167,7 @@ def week_id_for_system(system: str, d: date | None = None) -> str:
     """Per-system game-day week id: TOW uses Wednesday, HH and Kill Team use Friday."""
     if d is None:
         d = date.today()
-    if system in ("Horus Heresy", "Kill Team"):
+    if system in ("The Horus Heresy", "Kill Team"):
         return week_id_fri(d)
     # Default to TOW behaviour
     return week_id_wed(d)
@@ -1284,7 +1284,7 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
         # --- Intro priority pass: match TOW "Intro" seekers with leaders first ---
         intro_pairs: List[Pairing] = []
         used_intro: Set[str] = set()
-        if system in ("TOW","Horus Heresy"):  # Kill Team has no intro/demo mechanic
+        if system in ("The Old World","The Horus Heresy"):  # Kill Team has no intro/demo mechanic
             seekers = [m for m in candidates if (m.row.vibe and m.row.vibe.lower() == "intro")]
             leaders = [m for m in candidates if m.row.can_demo]
             for seeker in seekers:
@@ -1316,12 +1316,12 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
                     used_intro.add(seeker.key); used_intro.add(best.key)
             candidates = [m for m in candidates if m.key not in used_intro]
 
-        candidates.sort(key=lambda m: ((0 if ((m.row.vibe or "").strip().lower() == "escalation") else 1) if system == "TOW" else 0, m.preference, m.key))
+        candidates.sort(key=lambda m: ((0 if ((m.row.vibe or "").strip().lower() == "escalation") else 1) if system == "The Old World" else 0, m.preference, m.key))
         # If T&T grouping is enabled and we have an odd number of candidates,
         # and at least three players have opted into Triumph & Treachery, bias
         # the eventual BYE towards a T&T-capable player. This keeps the odd
         # player as someone who is happy to be folded into a 3-way game.
-        if allow_tnt and system == "TOW" and (len(candidates) % 2 == 1):
+        if allow_tnt and system == "The Old World" and (len(candidates) % 2 == 1):
             tnt_pool = [m for m in candidates if getattr(m.row, "tnt_ok", False)]
             if len(tnt_pool) >= 3:
                 # Move one T&T player to the end of the list so the standard
@@ -1360,7 +1360,7 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
             return 3
 
         def _scenario_diff_tow(a_su, b_su, system_name):
-            if system_name != "TOW":
+            if system_name != "The Old World":
                 return 0
             sa = (a_su.scenario or "").strip() if a_su else ""
             sb = (b_su.scenario or "").strip() if b_su else ""
@@ -1393,7 +1393,7 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
 
         def _escalation_priority_penalty(a_row, b_row, system_name):
             """Bias TOW 'Escalation' players to match each other first, else prefer Casual/Either."""
-            if system_name != "TOW":
+            if system_name != "The Old World":
                 return 0
             av = ((getattr(a_row, "vibe", None) or "").strip().lower())
             bv = ((getattr(b_row, "vibe", None) or "").strip().lower())
@@ -1538,7 +1538,7 @@ with T[idx["Call to Arms"]]:
             "Week (DD/MM/YYYY)",
             value=week_default,
             key=f"cta_week_{system}",
-            help="TOW uses Wednesday; Horus Heresy and Kill Team use Friday as the week id."
+            help="The Old World uses Wednesday; The Horus Heresy and Kill Team use Friday as the week id."
         )
 
     st.divider()
@@ -1560,7 +1560,7 @@ with T[idx["Call to Arms"]]:
     first = ""
     last = ""
 
-    is_hh = (system == "Horus Heresy")
+    is_hh = (system == "The Horus Heresy")
     is_kt = (system == "Kill Team")
 
     if not _is_new:
@@ -1799,7 +1799,7 @@ with T[idx["Call to Arms"]]:
                     invalidate_app_caches()
                     st.success("You've been removed from this week's signup.")
                     # Discord notification for TOW drops
-                    if system == "TOW":
+                    if system == "The Old World":
                         post_discord_drop(ref.player_name, ref.faction, ref.vibe, week_val.strip())
     else:
         st.caption("Select your player above to drop an existing signup.")
@@ -1815,7 +1815,7 @@ with T[idx["Pairings"]]:
         "Week (DD/MM/YYYY)",
         value=week_id_for_system(sys_pick, date.today()),
         key=f"pub_week_{sys_pick}",
-        help="TOW uses the Wednesday date; Horus Heresy and Kill Team use the Friday date."
+        help="The Old World uses the Wednesday date; The Horus Heresy and Kill Team use the Friday date."
     )
 
     # Fetch PublishState, Pairings, and Signups in a single session
@@ -1858,7 +1858,7 @@ with T[idx["Pairings"]]:
             pts_show = _pts_show_for_pair(a, b)
 
             type_pub = _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None))
-            if sys_pick == "TOW" and tnt_names:
+            if sys_pick == "The Old World" and tnt_names:
                 if (a and a.player_name in tnt_names) or (b and b.player_name in tnt_names):
                     type_pub = "T&T"
 
@@ -1994,7 +1994,7 @@ if "Signups" in idx:
             "Week (DD/MM/YYYY)",
             value=week_id_for_system(sys_pick, date.today()),
             key=f"adm_week_su_{sys_pick}",
-            help="TOW = Wednesday date; Horus Heresy and Kill Team = Friday date."
+            help="The Old World = Wednesday date; The Horus Heresy and Kill Team = Friday date."
         )
         with Session(engine) as s:
             sus = s.exec(select(Signup).where((Signup.week == week_lookup) & (Signup.system == sys_pick)).order_by(Signup.created_at)).all()
@@ -2081,7 +2081,7 @@ if "Pairings Admin" in idx:
                 "Week (DD/MM/YYYY)",
                 value=week_id_for_system(sys_pick, date.today()),
                 key=f"adm_week_pairs_{sys_pick}",
-                help="TOW = Wednesday date; Horus Heresy and Kill Team = Friday date."
+                help="The Old World = Wednesday date; The Horus Heresy and Kill Team = Friday date."
             )
         week_val = week_lookup  # alias used by generate section below
 
@@ -2183,7 +2183,7 @@ if "Pairings Admin" in idx:
                 pts_show = _pts_show_for_pair(a, b)
 
                 type_show = _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None))
-                if sys_pick == "TOW" and tnt_names:
+                if sys_pick == "The Old World" and tnt_names:
                     if (a and a.player_name in tnt_names) or (b and b.player_name in tnt_names):
                         type_show = "T&T"
 
@@ -2225,11 +2225,11 @@ if "Pairings Admin" in idx:
                     ),
                     "A Faction": st.column_config.SelectboxColumn(
                         "A Faction",
-                        options=(HH_FACTIONS_WITH_BLANK if sys_pick == "Horus Heresy" else PLACEHOLDER_FACTIONS_WITH_BLANK),
+                        options=(HH_FACTIONS_WITH_BLANK if sys_pick == "The Horus Heresy" else PLACEHOLDER_FACTIONS_WITH_BLANK),
                     ),
                     "A Type": st.column_config.SelectboxColumn(
                         "A Type",
-                        options=(["Standard", "Intro"] if sys_pick == "Horus Heresy" else ["Casual", "Competitive", "Intro", "Either"]),
+                        options=(["Standard", "Intro"] if sys_pick == "The Horus Heresy" else ["Casual", "Competitive", "Intro", "Either"]),
                     ),
                     "B": st.column_config.SelectboxColumn(
                         "B",
@@ -2238,15 +2238,15 @@ if "Pairings Admin" in idx:
                     ),
                     "B Faction": st.column_config.SelectboxColumn(
                         "B Faction",
-                        options=(HH_FACTIONS_WITH_BLANK if sys_pick == "Horus Heresy" else PLACEHOLDER_FACTIONS_WITH_BLANK),
+                        options=(HH_FACTIONS_WITH_BLANK if sys_pick == "The Horus Heresy" else PLACEHOLDER_FACTIONS_WITH_BLANK),
                     ),
                     "B Type": st.column_config.SelectboxColumn(
                         "B Type",
-                        options=(["Standard", "Intro"] if sys_pick == "Horus Heresy" else ["Casual", "Competitive", "Intro", "Either"]),
+                        options=(["Standard", "Intro"] if sys_pick == "The Horus Heresy" else ["Casual", "Competitive", "Intro", "Either"]),
                     ),
                     "Type": st.column_config.SelectboxColumn(
                         "Type",
-                        options=(["Standard", "Intro"] if sys_pick == "Horus Heresy" else ["Casual", "Competitive", "Intro", "Either"]),
+                        options=(["Standard", "Intro"] if sys_pick == "The Horus Heresy" else ["Casual", "Competitive", "Intro", "Either"]),
                     ),
                     "ETA": st.column_config.SelectboxColumn(
                         "ETA",

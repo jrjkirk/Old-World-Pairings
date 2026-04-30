@@ -549,7 +549,7 @@ def recalc_league_ratings() -> None:
             after_1, after_2 = update_league_elo(before_1, before_2, _score_for_player_1(lr.result), k_used)
 
             # Apply painting bonuses as flat additions after the standard ELO equation.
-            # "-None-"/blank = 0, Partially Painted = 1, Fully Painted = 3.
+            # "— None —"/blank = 0, Partially Painted = 1, Fully Painted = 3.
             after_1 += _league_painting_bonus_score(getattr(lr, "player_1_painting_bonus", None))
             after_2 += _league_painting_bonus_score(getattr(lr, "player_2_painting_bonus", None))
 
@@ -1480,8 +1480,8 @@ with st.sidebar:
     st.header("Access")
     if not st.session_state.is_admin:
         with st.form("admin_unlock_form"):
-            pw = st.text_input("Admin password", type="password")
-            submitted = st.form_submit_button("Unlock admin", width='stretch')
+            pw = st.text_input("Admin Password", type="password")
+            submitted = st.form_submit_button("Unlock Admin", width='stretch')
         if submitted:
             if pw == ADMIN_PASSWORD:
                 st.session_state.is_admin = True
@@ -1526,7 +1526,7 @@ idx = {name:i for i,name in enumerate(order)}
 
 # --------------- Public: Call to Arms ---------------
 with T[idx["Call to Arms"]]:
-    st.subheader("Join this week's games")
+    st.subheader("Join This Week's Games")
 
     c1, c2 = st.columns([1,2])
     with c1:
@@ -1553,8 +1553,8 @@ with T[idx["Call to Arms"]]:
     _player_labels = [_fmt_player_label(p) for p in _players_all]
     _label_to_id = { _fmt_player_label(p): p.id for p in _players_all }
 
-    st.markdown("### Who are you?")
-    _is_new = st.checkbox("I'm new (create a player profile)")
+    st.markdown("### Who Are You?")
+    _is_new = st.checkbox("I'm New (Create a Player Profile)")
 
     selected_player_label = None
     first = ""
@@ -1565,7 +1565,7 @@ with T[idx["Call to Arms"]]:
 
     if not _is_new:
         selected_player_label = st.selectbox(
-            "Select your player",
+            "Select Your Player",
             options=(['— Select —'] + _player_labels),
             index=0,
             placeholder="Type to search…"
@@ -1573,9 +1573,9 @@ with T[idx["Call to Arms"]]:
     else:
         _cfa, _cfb = st.columns(2)
         with _cfa:
-            first = st.text_input("First name *")
+            first = st.text_input("First Name *")
         with _cfb:
-            last = st.text_input("Last name *")
+            last = st.text_input("Last Name *")
 
     # Look up this player's most recent signup to prefill fields
     last_su = None
@@ -1636,11 +1636,11 @@ with T[idx["Call to Arms"]]:
         if default_faction and default_faction in faction_options:
             faction_index = faction_options.index(default_faction)
 
-        faction_label = "Your Kill Team" if is_kt else "Your faction"
+        faction_label = "Your Kill Team" if is_kt else "Your Faction"
         faction_choice = st.selectbox(faction_label, faction_options, index=faction_index, key=f"signup_faction_{system}_{_key_suffix}")
         # Points (not shown for Kill Team)
         if not is_kt:
-            pts = st.number_input("Army points", min_value=0, max_value=10000, value=int(default_pts), step=50, key=f"signup_pts_{system}_{_key_suffix}")
+            pts = st.number_input("Army Points", min_value=0, max_value=10000, value=int(default_pts), step=50, key=f"signup_pts_{system}_{_key_suffix}")
             if not is_hh:
                 st.caption("If selecting an Escalation game, please input backup army points limit.")
         else:
@@ -1654,7 +1654,7 @@ with T[idx["Call to Arms"]]:
                 eta_options.append(f"{h:02d}:{m:02d}")
         eta_label = default_eta if default_eta in eta_options else "18:30"
         eta_default_idx = eta_options.index(eta_label) if eta_label in eta_options else 0
-        eta = st.selectbox("Estimated time of arrival", eta_options, index=eta_default_idx, key=f"signup_eta_{system}_{_key_suffix}")
+        eta = st.selectbox("Estimated Time of Arrival", eta_options, index=eta_default_idx, key=f"signup_eta_{system}_{_key_suffix}")
         exp_options = ["New", "Some", "Veteran"]
         exp_index = exp_options.index(default_exp) if default_exp in exp_options else 0
         exp = st.selectbox("Experience", exp_options, index=exp_index, key=f"signup_exp_{system}_{_key_suffix}")
@@ -1662,29 +1662,29 @@ with T[idx["Call to Arms"]]:
         if is_hh:
             vibe_options = ["Standard", "Intro"]
             vibe_index = vibe_options.index(default_vibe) if default_vibe in vibe_options else 0
-            vibe = st.selectbox("Type of game", vibe_options, index=vibe_index, key=f"signup_vibe_{system}_{_key_suffix}")
+            vibe = st.selectbox("Type of Game", vibe_options, index=vibe_index, key=f"signup_vibe_{system}_{_key_suffix}")
         elif is_kt:
             vibe = "Standard"
         else:
             vibe_options = ["Casual", "Competitive", "Escalation", "Intro", "Either"]
             vibe_index = vibe_options.index(default_vibe) if default_vibe in vibe_options else 0
-            vibe = st.selectbox("Type of game", vibe_options, index=vibe_index, key=f"signup_vibe_{system}_{_key_suffix}")
-        standby = st.checkbox("I can be on standby", value=default_standby, key=f"signup_standby_{system}_{_key_suffix}")
+            vibe = st.selectbox("Type of Game", vibe_options, index=vibe_index, key=f"signup_vibe_{system}_{_key_suffix}")
+        standby = st.checkbox("I Can Be on Standby", value=default_standby, key=f"signup_standby_{system}_{_key_suffix}")
         # Triumph & Treachery (TOW only)
         if not is_hh and not is_kt:
-            tnt = st.checkbox("I can play Triumph & Treachery (3-way)", value=default_tnt, key=f"signup_tnt_{system}_{_key_suffix}")
+            tnt = st.checkbox("I Can Play Triumph & Treachery (3-Way)", value=default_tnt, key=f"signup_tnt_{system}_{_key_suffix}")
         else:
             tnt = False
         # Scenario (TOW only)
         if not is_hh and not is_kt:
             scen_options = ["Open Battle", "Weekly Scenario"]
             scen_index = scen_options.index(default_scenario) if default_scenario in scen_options else 0
-            scenario = st.selectbox("Scenario preference", scen_options, index=scen_index, key=f"signup_scenario_{system}_{_key_suffix}")
+            scenario = st.selectbox("Scenario Preference", scen_options, index=scen_index, key=f"signup_scenario_{system}_{_key_suffix}")
         else:
             scenario = None
         # Intro game leadership (not shown for Kill Team)
         if not is_kt:
-            can_demo = st.checkbox("I can lead an intro game", value=default_can_demo, key=f"signup_demo_{system}_{_key_suffix}")
+            can_demo = st.checkbox("I Can Lead an Intro Game", value=default_can_demo, key=f"signup_demo_{system}_{_key_suffix}")
         else:
             can_demo = False
 
@@ -1765,9 +1765,9 @@ with T[idx["Call to Arms"]]:
         else:
             st.success("Your existing signup for this week has been updated.")
 
-    st.markdown("### Need to drop out?")
+    st.markdown("### Need to Drop Out?")
     if not _is_new and selected_player_label and selected_player_label in _label_to_id:
-        if st.button("Drop my signup for this week"):
+        if st.button("Drop My Signup for This Week"):
             with Session(engine) as s:
                 # Block drops after pairings have been published for this week/system
                 gate = s.exec(
@@ -1888,24 +1888,24 @@ with T[idx["Old World League"]]:
     st.markdown("### Results Submission")
     result_players = sorted(active_players_snapshot(), key=lambda p: p["name"].lower())
 
-    player_label_options = ["-None-", *[f"#{p['id']} — {p['name']}" for p in result_players]]
+    player_label_options = ["— None —", *[f"#{p['id']} — {p['name']}" for p in result_players]]
     player_label_to_id = {f"#{p['id']} — {p['name']}": p["id"] for p in result_players}
     player_id_to_name = {p["id"]: p["name"] for p in result_players}
 
     if len(player_label_options) > 1:
         with st.form("old_world_league_result_form", clear_on_submit=True):
             c1, c_vs, c2 = st.columns([2, 0.35, 2])
-            league_faction_options = ["-None-", *PLACEHOLDER_FACTIONS]
-            painting_bonus_options = ["-None-", "Partially Painted", "Fully Painted"]
+            league_faction_options = ["— None —", *PLACEHOLDER_FACTIONS]
+            painting_bonus_options = ["— None —", "Partially Painted", "Fully Painted"]
             with c1:
                 player_1_label = st.selectbox("Player 1", player_label_options, index=0, key="owl_results_player_1")
-                player_1_faction_choice = st.selectbox("Player 1 faction", league_faction_options, index=0, key="owl_results_player_1_faction")
+                player_1_faction_choice = st.selectbox("Player 1 Faction", league_faction_options, index=0, key="owl_results_player_1_faction")
                 player_1_painting_bonus_choice = st.selectbox("Player 1 Painting Bonus", painting_bonus_options, index=0, key="owl_results_player_1_painting_bonus")
             with c_vs:
                 st.markdown("<div style='text-align:center;font-weight:700;padding-top:2.1rem'>vs</div>", unsafe_allow_html=True)
             with c2:
                 player_2_label = st.selectbox("Player 2", player_label_options, index=0, key="owl_results_player_2")
-                player_2_faction_choice = st.selectbox("Player 2 faction", league_faction_options, index=0, key="owl_results_player_2_faction")
+                player_2_faction_choice = st.selectbox("Player 2 Faction", league_faction_options, index=0, key="owl_results_player_2_faction")
                 player_2_painting_bonus_choice = st.selectbox("Player 2 Painting Bonus", painting_bonus_options, index=0, key="owl_results_player_2_painting_bonus")
 
             game_type_choice = st.selectbox(
@@ -1924,7 +1924,7 @@ with T[idx["Old World League"]]:
             submitted_league_result = st.form_submit_button("Submit Result")
 
         if submitted_league_result:
-            if player_1_label == "-None-" or player_2_label == "-None-":
+            if player_1_label == "— None —" or player_2_label == "— None —":
                 st.error("Please select both players before submitting a result.")
             elif player_1_label == player_2_label:
                 st.error("Please select two different players before submitting a result.")
@@ -1933,10 +1933,10 @@ with T[idx["Old World League"]]:
                 player_2_id = player_label_to_id.get(player_2_label)
                 player_1_name = player_id_to_name.get(player_1_id, player_1_label)
                 player_2_name = player_id_to_name.get(player_2_id, player_2_label)
-                player_1_faction = None if player_1_faction_choice == "-None-" else player_1_faction_choice
-                player_2_faction = None if player_2_faction_choice == "-None-" else player_2_faction_choice
-                player_1_painting_bonus = None if player_1_painting_bonus_choice == "-None-" else player_1_painting_bonus_choice
-                player_2_painting_bonus = None if player_2_painting_bonus_choice == "-None-" else player_2_painting_bonus_choice
+                player_1_faction = None if player_1_faction_choice == "— None —" else player_1_faction_choice
+                player_2_faction = None if player_2_faction_choice == "— None —" else player_2_faction_choice
+                player_1_painting_bonus = None if player_1_painting_bonus_choice == "— None —" else player_1_painting_bonus_choice
+                player_2_painting_bonus = None if player_2_painting_bonus_choice == "— None —" else player_2_painting_bonus_choice
 
                 ensure_league_results_table()
                 result_date_clean = uk_date_str(date.today())
@@ -1991,7 +1991,7 @@ if "Signups" in idx:
         sys_pick = st.selectbox("System", SYSTEMS, index=0, key="adm_sys_su")
 
         week_lookup = st.text_input(
-            "Week",
+            "Week (DD/MM/YYYY)",
             value=week_id_for_system(sys_pick, date.today()),
             key=f"adm_week_su_{sys_pick}",
             help="TOW = Wednesday date; Horus Heresy and Kill Team = Friday date."
@@ -2012,7 +2012,7 @@ if "Signups" in idx:
                 "Standby": su.standby_ok,
                 "T&T": su.tnt_ok,
                 "Scenario": su.scenario,
-                "Can lead intro": su.can_demo,
+                "Can Lead Intro": su.can_demo,
                 "Created": su.created_at.strftime("%Y-%m-%d %H:%M")
             } for su in sus]
             df = pd.DataFrame(rows)
@@ -2027,7 +2027,7 @@ if "Signups" in idx:
             )
             c1, c2 = st.columns([1,1])
             with c1:
-                if st.button("Save changes"):
+                if st.button("Save Changes"):
                     # Compare and persist changes back to DB
                     changes = 0
                     orig_map = {r["ID"]: r for r in rows}
@@ -2035,7 +2035,7 @@ if "Signups" in idx:
                         for _, r in edited.iterrows():
                             rid = int(r["ID"])
                             o = orig_map[rid]
-                            fields = ["Faction","Pts","ETA","Exp","Type","Standby","T&T","Scenario","Can lead intro"]
+                            fields = ["Faction","Pts","ETA","Exp","Type","Standby","T&T","Scenario","Can Lead Intro"]
                             if any(r[f] != o[f] for f in fields):
                                 su = s.get(Signup, rid)
                                 if su:
@@ -2047,7 +2047,7 @@ if "Signups" in idx:
                                     su.standby_ok = bool(r["Standby"]) if pd.notna(r["Standby"]) else False
                                     su.tnt_ok = bool(r["T&T"]) if pd.notna(r["T&T"]) else False
                                     su.scenario = r["Scenario"] if pd.notna(r["Scenario"]) else None
-                                    su.can_demo = bool(r["Can lead intro"]) if pd.notna(r["Can lead intro"]) else False
+                                    su.can_demo = bool(r["Can Lead Intro"]) if pd.notna(r["Can Lead Intro"]) else False
                                     s.add(su); changes += 1
                         if changes:
                             s.commit()
@@ -2057,8 +2057,8 @@ if "Signups" in idx:
                     else:
                         st.info("No changes detected.")
             with c2:
-                del_ids = st.multiselect("Delete signups (select ID)", options=list(edited["ID"]))
-                if st.button("Delete selected") and del_ids:
+                del_ids = st.multiselect("Delete Signups (Select ID)", options=list(edited["ID"]))
+                if st.button("Delete Selected") and del_ids:
                     with Session(engine) as s:
                         for rid in del_ids:
                             obj = s.get(Signup, int(rid))
@@ -2090,10 +2090,10 @@ if "Pairings Admin" in idx:
         # ---- Section 1: Generate Weekly Pairings ----
         st.subheader("Generate Weekly Pairings")
         st.caption("Deletes existing **pending** pairings for that week+system before generating.")
-        allow_repeats = st.checkbox("Allow rematches if necessary", value=True)
-        allow_tnt = st.checkbox("Enable 3-way (T&T) grouping when odd numbers", value=True, help="Creates a BYE record for the odd person.")
+        allow_repeats = st.checkbox("Allow Rematches If Necessary", value=True)
+        allow_tnt = st.checkbox("Enable 3-Way (T&T) Grouping When Odd Numbers", value=True, help="Creates a BYE record for the odd person.")
 
-        if st.button("Generate pairings", type="primary"):
+        if st.button("Generate Pairings", type="primary"):
             with Session(engine) as s:
                 old = s.exec(select(Pairing).where((Pairing.week == week_val) & (Pairing.system == sys_pick) & (Pairing.status == "pending"))).all()
                 for r in old:
@@ -2259,7 +2259,7 @@ if "Pairings Admin" in idx:
             st.caption("Use the dropdowns in 'A' and 'B' to manually re-pair matches in this week/system.")
 
             # Save button: persist changes back to DB
-            if st.button("Save pairing changes", type="primary"):
+            if st.button("Save Pairing Changes", type="primary"):
                 def parse_signup_id(label: str | None) -> int | None:
                     if not label or label == bye_label:
                         return None
@@ -2365,7 +2365,7 @@ if "Pairings Admin" in idx:
 
             # Discord: post public-style pairings table to webhook, if configured
             if DISCORD_PAIRINGS_WEBHOOK_URL:
-                if st.button("Post pairings to Discord"):
+                if st.button("Post Pairings to Discord"):
                     if public_rows_for_discord:
                         post_pairings_table_to_discord(public_rows_for_discord, week_lookup, sys_pick)
                         st.success("Posted pairings to Discord.")
@@ -2376,8 +2376,8 @@ if "Pairings Admin" in idx:
 
 
             with st.form("delete_pairs_form", clear_on_submit=True):
-                ids_str = st.text_input("Delete pairing IDs (comma-separated)")
-                do_delete = st.form_submit_button("Delete selected")
+                ids_str = st.text_input("Delete Pairing IDs (Comma-Separated)")
+                do_delete = st.form_submit_button("Delete Selected")
             if do_delete and ids_str.strip():
                 try:
                     ids = [int(x.strip()) for x in ids_str.split(",") if x.strip().isdigit()]
@@ -2399,7 +2399,7 @@ if "League" in idx:
 
         recalc_col, _ = st.columns([1, 3])
         with recalc_col:
-            if st.button("Recalculate ELO ratings"):
+            if st.button("Recalculate ELO Ratings"):
                 recalc_league_ratings()
                 st.success("League ELO ratings recalculated from full result history.")
 
@@ -2411,10 +2411,10 @@ if "League" in idx:
             st.dataframe(league_rows, width='stretch', hide_index=True)
 
             delete_result_ids = st.multiselect(
-                "Delete results (select Game Number)",
+                "Delete Results (Select Game Number)",
                 options=[row["Game Number"] for row in league_rows],
             )
-            if st.button("Delete selected result(s)") and delete_result_ids:
+            if st.button("Delete Selected Result(s)") and delete_result_ids:
                 with Session(engine) as s:
                     for rid in delete_result_ids:
                         obj = s.get(LeagueResult, int(rid))
@@ -2430,8 +2430,8 @@ if "View History" in idx:
     with T[idx["View History"]]:
         st.subheader("View History")
         sys_pick = st.selectbox("System", SYSTEMS, index=0, key="adm_hist_sys")
-        week_filter = st.text_input("Week contains (optional)", value="", key="adm_hist_week_filter")
-        limit = st.number_input("Show last N pairings", min_value=10, max_value=1000, value=200, step=10, help="Caps how many rows to display")
+        week_filter = st.text_input("Week Contains (Optional)", value="", key="adm_hist_week_filter")
+        limit = st.number_input("Show Last N Pairings", min_value=10, max_value=1000, value=200, step=10, help="Caps how many rows to display")
 
         with Session(engine) as s:
             q = select(Pairing).where(Pairing.system == sys_pick)
@@ -2478,7 +2478,7 @@ if "View History" in idx:
             df = pd.DataFrame(rows)
             st.dataframe(df, width='stretch', hide_index=True)
             csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button("Download history as CSV", data=csv, file_name="pairings_history.csv", mime="text/csv", width='stretch')
+            st.download_button("Download History as CSV", data=csv, file_name="pairings_history.csv", mime="text/csv", width='stretch')
 
 
 

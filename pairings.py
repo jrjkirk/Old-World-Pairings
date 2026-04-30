@@ -48,6 +48,7 @@ DATABASE_URL = _get_secret("DATABASE_URL")  # optional (Postgres); default local
 DB_PATH = "pairings_db.sqlite"
 LOGO_TOW_URL = _get_secret("TOW_LOGO_URL", "")
 LOGO_HH_URL = _get_secret("HH_LOGO_URL", "")
+LOGO_KT_URL = _get_secret("KT_LOGO_URL", "")
 HEADER_LOGO_WIDTH = int(_get_secret("HEADER_LOGO_WIDTH", 120))
 ELEMENT_URL = _get_secret("ELEMENT_URL", "")
 ELEMENT_LOGO_URL = _get_secret("ELEMENT_LOGO_URL", "")
@@ -687,8 +688,8 @@ def _find_logo_path() -> Optional[str]:
 
 
 def render_header():
-    # Build dual images from secrets or local files; if neither found, fall back to existing single-logo logic.
-    # TOW candidates include Old World files; HH includes heresy keywords.
+    # Build triple images from secrets or local files; if none found, fall back to existing single-logo logic.
+    # TOW candidates include Old World files; HH includes heresy keywords; KT includes kill team keywords.
     tow_img = _img_html_from_secret_or_file(
         LOGO_TOW_URL,
         ['The-Old-World-Logo.png','The-Old-World-Logo.jpg','old_world_logo.png','old_world_logo.jpg','tow.png','tow.jpg'],
@@ -701,9 +702,15 @@ def render_header():
         HEADER_LOGO_WIDTH,
         'Horus Heresy'
     )
+    kt_img = _img_html_from_secret_or_file(
+        LOGO_KT_URL,
+        ['killteam.png','killteam.jpg','kill_team.png','kill_team.jpg','kt_logo.png','kt_logo.jpg'],
+        HEADER_LOGO_WIDTH,
+        'Kill Team'
+    )
 
-    # Fallback to previous single-logo pipeline if neither produced output
-    if not (tow_img or hh_img):
+    # Fallback to previous single-logo pipeline if none produced output
+    if not (tow_img or hh_img or kt_img):
         logo_html = ""
         if LOGO_URL:
             logo_html = f"<img src='{LOGO_URL}' alt='Logo' width='{LOGO_WIDTH}'/>"
@@ -717,7 +724,8 @@ def render_header():
                 logo_html = f"<img src='data:{mime};base64,{encoded}' alt='Logo' width='{LOGO_WIDTH}'/>"
         header_html = logo_html
     else:
-        header_html = f"<div style='display:flex;gap:24px;align-items:center;justify-content:center;flex-wrap:wrap'>{tow_img}{hh_img}</div>"
+        imgs = "".join(img for img in [tow_img, hh_img, kt_img] if img)
+        header_html = f"<div style='display:flex;gap:24px;align-items:center;justify-content:center;flex-wrap:wrap'>{imgs}</div>"
 
     st.markdown(f"""
 <div class='owl-header' style='display:flex;flex-direction:column;align-items:center;gap:.35rem;margin:1.0rem 0 .6rem;'>

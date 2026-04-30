@@ -1519,7 +1519,7 @@ with st.sidebar:
         st.markdown(f"<div style='display:flex;justify-content:center;align-items:center;margin-top:10px'>{disc_img}</div>", unsafe_allow_html=True)
 
 tabs_public = ["Call to Arms", "Pairings", "Old World League"]
-tabs_admin  = ["Signups", "Generate Pairings", "Weekly Pairings", "League", "View History", "Call to Arms Post"]
+tabs_admin  = ["Signups", "Pairings Admin", "League", "View History"]
 order = tabs_public + (tabs_admin if st.session_state.get("is_admin") else [])
 T = st.tabs(order)
 idx = {name:i for i,name in enumerate(order)}
@@ -2068,29 +2068,33 @@ if "Signups" in idx:
                     invalidate_app_caches()
                     st.warning(f"Deleted {len(del_ids)} signup(s).")
 
-# --------------- Admin: Generate ---------------
-if "Generate Pairings" in idx:
-    with T[idx["Generate Pairings"]]:
-        st.subheader("Generate Weekly Pairings")
-        c1, c2 = st.columns([1,2])
+# --------------- Admin: Pairings (merged Generate + Browse) ---------------
+if "Pairings Admin" in idx:
+    with T[idx["Pairings Admin"]]:
+
+        # --- Shared system/week selector at the top ---
+        c1, c2 = st.columns([1, 2])
         with c1:
-            sys_pick = st.selectbox("System", SYSTEMS, index=0, key="adm_sys_gen")
-
+            sys_pick = st.selectbox("System", SYSTEMS, index=0, key="adm_sys_pairs")
         with c2:
-            week_val = st.text_input(
-                "Week id",
+            week_lookup = st.text_input(
+                "Week (DD/MM/YYYY)",
                 value=week_id_for_system(sys_pick, date.today()),
-                key=f"adm_week_gen_{sys_pick}",
-                help="Game-day id (TOW: Wednesday; Horus Heresy and Kill Team: Friday)."
+                key=f"adm_week_pairs_{sys_pick}",
+                help="TOW = Wednesday date; Horus Heresy and Kill Team = Friday date."
             )
+        week_val = week_lookup  # alias used by generate section below
 
+        st.divider()
+
+        # ---- Section 1: Generate Weekly Pairings ----
+        st.subheader("Generate Weekly Pairings")
         st.caption("Deletes existing **pending** pairings for that week+system before generating.")
         allow_repeats = st.checkbox("Allow rematches if necessary", value=True)
-        allow_tnt = st.checkbox("Enable 3-way (T&T) grouping when odd numbers", value=True, help="Creates a BYE record for the odd person; you can manually combine into a 3-way below.")
+        allow_tnt = st.checkbox("Enable 3-way (T&T) grouping when odd numbers", value=True, help="Creates a BYE record for the odd person.")
 
         if st.button("Generate pairings", type="primary"):
             with Session(engine) as s:
-                # Clear existing pending for this week+system
                 old = s.exec(select(Pairing).where((Pairing.week == week_val) & (Pairing.system == sys_pick) & (Pairing.status == "pending"))).all()
                 for r in old:
                     s.delete(r)
@@ -2102,63 +2106,10 @@ if "Generate Pairings" in idx:
             else:
                 st.info("No signups to pair.")
 
-        st.divider(); st.subheader("Manual 3-way merge (optional)")
-        with Session(engine) as s:
-            prs = s.exec(select(Pairing).where((Pairing.week == week_val) & (Pairing.system == sys_pick)).order_by(Pairing.id)).all()
-            all_su = {su.id: su for su in s.exec(select(Signup).where((Signup.week == week_val) & (Signup.system == sys_pick))).all()}
-        if prs:
-            labels = []
-            id_map = {}
-            for p in prs:
-                a = all_su.get(p.a_signup_id)
-                b = all_su.get(p.b_signup_id) if p.b_signup_id else None
-                label = f"#{p.id}: {(a.player_name if a else 'A?')} vs {(b.player_name if b else 'BYE')}"
-                labels.append(label); id_map[label] = p.id
-            bye_labels = []
-            bye_id_map = {}
-            for p in prs:
-                if p.b_signup_id is None:
-                    a = all_su.get(p.a_signup_id)
-                    bye_labels.append(f"BYE #{p.id}: {(a.player_name if a else 'A?')}")
-                    bye_id_map[bye_labels[-1]] = p.id
-            if len(bye_labels) >= 2 and labels:
-                with st.form("merge_tnt_form"):
-                    b1 = st.selectbox("BYE 1", options=bye_labels, key="bye1")
-                    b2 = st.selectbox("BYE 2", options=[x for x in bye_labels if x != b1], key="bye2")
-                    host = st.selectbox("Host pairing (will become 3-way)", options=labels, key="host_sel")
-                    do_merge = st.form_submit_button("Merge into 3-way")
-                if do_merge:
-                    with Session(engine) as s:
-                        host_id = id_map[host]
-                        p_host = s.get(Pairing, host_id)
-                        p_b1 = s.get(Pairing, bye_id_map[b1])
-                        p_b2 = s.get(Pairing, bye_id_map[b2])
-                        if p_host and p_b1 and p_b2 and p_host.b_signup_id is not None:
-                            p_b1.status = "cancelled"
-                            p_b2.status = "cancelled"
-                            s.add(p_b1); s.add(p_b2)
-                            s.commit()
-                            st.success("Merged (logical). Please coordinate 3-way among the three players.")
-                        else:
-                            st.error("Pick a host that already has two players.")
-            else:
-                st.info("Need at least two BYE entries to propose a 3-way merge.")
-        else:
-            st.info("No pairings yet for that week/system.")
+        st.divider()
 
-
-# --------------- Admin: Pairings ---------------
-if "Weekly Pairings" in idx:
-    with T[idx["Weekly Pairings"]]:
+        # ---- Section 2: Browse / Delete Pairings ----
         st.subheader("Browse / Delete Pairings")
-        sys_pick = st.selectbox("System", SYSTEMS, index=0, key="adm_sys_pairs")
-
-        week_lookup = st.text_input(
-            "Week",
-            value=week_id_for_system(sys_pick, date.today()),
-            key=f"adm_week_pairs_{sys_pick}",
-            help="TOW = Wednesday date; Horus Heresy and Kill Team = Friday date."
-        )
 
         # Publish controls — fetch gate once; button handlers upsert then rerun (gate re-fetched on next render)
         with Session(engine) as s:
@@ -2424,7 +2375,6 @@ if "Weekly Pairings" in idx:
                 st.caption("Configure DISCORD_PAIRINGS_WEBHOOK_URL to enable Discord pairings posting.")
 
 
-# Delete-by-ID form (unchanged behaviour)
             with st.form("delete_pairs_form", clear_on_submit=True):
                 ids_str = st.text_input("Delete pairing IDs (comma-separated)")
                 do_delete = st.form_submit_button("Delete selected")
@@ -2443,7 +2393,6 @@ if "Weekly Pairings" in idx:
 # --------------- Admin: League ---------------
 if "League" in idx:
     with T[idx["League"]]:
-        st.subheader("League")
         st.markdown("### Submitted Games")
 
         ensure_league_results_table()
@@ -2531,68 +2480,5 @@ if "View History" in idx:
             csv = df.to_csv(index=False).encode("utf-8")
             st.download_button("Download history as CSV", data=csv, file_name="pairings_history.csv", mime="text/csv", width='stretch')
 
-# --------------- Admin: Call to Arms Post ---------------
-if "Call to Arms Post" in idx:
-    with T[idx["Call to Arms Post"]]:
-        st.subheader("Discord Call to Arms (TOW)")
 
-        if not DISCORD_CALL_TO_ARMS_WEBHOOK_URL:
-            st.warning("No DISCORD_CALL_TO_ARMS_WEBHOOK_URL configured in secrets or environment; nothing will be sent.")
-        else:
-            st.caption("Post this week's TOW Call to Arms message to Discord immediately.")
-
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            default_wed = week_id_wed(date.today())
-            week_str = st.text_input(
-                "Week (Wednesday id, DD/MM/YYYY)",
-                value=default_wed,
-                key="cta_week",
-                help="This date will be used in the Call to Arms text.",
-            )
-        with col2:
-            use_random = st.checkbox("Pick random scenario", value=True, key="cta_random")
-
-        scenario_for_preview = None
-        if use_random:
-            st.info("A random TOW scenario will be chosen when you post.")
-        else:
-            if not TOW_SCENARIOS:
-                st.error("No TOW scenarios configured.")
-            else:
-                options = [f"{sc['code']} — {sc['name']}" for sc in TOW_SCENARIOS]
-                sel = st.selectbox("Scenario", options=options, key="cta_scenario")
-                sel_code = sel.split("—", 1)[0].strip()
-                for sc in TOW_SCENARIOS:
-                    if sc["code"] == sel_code:
-                        scenario_for_preview = sc
-                        break
-
-        if scenario_for_preview:
-            st.markdown(
-                f"**Selected scenario:** `{scenario_for_preview['code']}` — {scenario_for_preview['name']}  \n"
-                f"**Secondary Objectives:** {scenario_for_preview['secondary_objectives']}"
-            )
-
-        if st.button("Post TOW Call to Arms to Discord now", type="primary", width='stretch'):
-            if not DISCORD_CALL_TO_ARMS_WEBHOOK_URL:
-                st.error("DISCORD_CALL_TO_ARMS_WEBHOOK_URL is not configured; cannot post to Discord.")
-            else:
-                try:
-                    if use_random:
-                        scenario = pick_random_tow_scenario()
-                    else:
-                        scenario = scenario_for_preview
-
-                    if not scenario:
-                        st.error("No scenario available to post.")
-                    else:
-                        try:
-                            wed_date = parse_week_id(week_str)
-                        except Exception:
-                            wed_date = next_wednesday()
-                        post_tow_call_to_arms_with_image(scenario, wed_date)
-                        st.success(f"Posted Call to Arms for {scenario['code']} — {scenario['name']}.")
-                except Exception as e:
-                    st.error(f"Error while posting Call to Arms: {e}")
 

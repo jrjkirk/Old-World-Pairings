@@ -692,7 +692,7 @@ def active_players_snapshot() -> List[dict]:
 _DEF_CSS = """
 <style>
 html, body, .stApp,
-.stApp *, [class*="st-"], [data-testid] {
+.stApp *:not([class*="material-icons"]):not([class*="MaterialIcons"]):not(.material-symbols-outlined):not(.material-symbols-rounded):not(.material-symbols-sharp) {
     font-family: 'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', sans-serif !important;
 }
 html, body, .stApp { background: #141414 !important; color: #f0e8d8 !important; }

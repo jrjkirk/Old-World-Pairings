@@ -2159,13 +2159,26 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
                 candidates = [m for m in candidates if m.key != chosen.key] + [chosen]
 
 
-        seen_pairs = previous_pairs_recent(system, week, max_weeks=2)
+        # Two lookback windows: recent rematches are hard-avoided, older ones
+        # are soft-penalised so the algorithm prefers fresh matchups when possible.
+        seen_pairs_recent = previous_pairs_recent(system, week, max_weeks=3)
+        seen_pairs_extended = previous_pairs_recent(system, week, max_weeks=6)
         used: Set[str] = set()
         out: List[Pairing] = intro_pairs
 
         def has_played(x: str, y: str) -> bool:
-            a,b = sorted([x,y])
-            return (a,b) in seen_pairs
+            """True if these two players have been paired in the last 3 weeks."""
+            a, b = sorted([x, y])
+            return (a, b) in seen_pairs_recent
+
+        def rematch_penalty(x: str, y: str) -> int:
+            """0 = fresh, 1 = played within 4–6 weeks, 2 = played within 3 weeks (rematch)."""
+            a, b = sorted([x, y])
+            if (a, b) in seen_pairs_recent:
+                return 2
+            if (a, b) in seen_pairs_extended:
+                return 1
+            return 0
 
         def _eta_minutes(su):
             try:
@@ -2179,13 +2192,13 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
         def _eta_bucket_diff(a_su, b_su):
             am = _eta_minutes(a_su); bm = _eta_minutes(b_su)
             if am is None or bm is None:
-                return 2  # neutral-ish penalty when unknown
+                return 1  # neutral-ish penalty when unknown
             d = abs(am - bm)
-            # 0: <=15m, 1: <=30m, 2: <=60m, 3: >60m
-            if d <= 15: return 0
-            if d <= 30: return 1
-            if d <= 60: return 2
-            return 3
+            # Softened buckets — 30m difference is no longer punished, only larger gaps matter.
+            # 0: <=30m, 1: <=60m, 2: >60m
+            if d <= 30: return 0
+            if d <= 60: return 1
+            return 2
 
         def _scenario_diff_tow(a_su, b_su, system_name):
             if system_name != "The Old World":
@@ -2234,7 +2247,18 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
             return 2
 
         def _pair_dist(ms, other):
-            """Compute the lexicographic distance tuple used for greedy matching."""
+            """Compute the lexicographic distance tuple used for greedy matching.
+
+            Order of priority (lowest dimension dominates):
+              esc_p     — TOW escalation grouping bias
+              mir       — avoid mirror-faction matches
+              rematch_p — prefer fresh matchups (0=fresh, 1=4–6 wk, 2=last 3 wk)
+              dv        — vibe / game-type mismatch
+              de        — experience tier mismatch
+              eta_b     — ETA bucket distance (now softened, lower priority)
+              scen_d    — scenario preference (TOW only)
+              dp        — points difference
+            """
             dv_base = abs(ms.preference[0] - other.preference[0])
             dv = _vibe_distance_override(ms.row, other.row, dv_base)
             de = abs(ms.preference[1] - other.preference[1])
@@ -2244,14 +2268,15 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
             scen_d = _scenario_diff_tow(ms.row, other.row, system)
             mir = _mirror_flag(ms.row, other.row)
             esc_p = _escalation_priority_penalty(ms.row, other.row, system)
-            return (esc_p, mir, eta_b, scen_d, dv, de, dp)
+            rematch_p = rematch_penalty(ms.key, other.key)
+            return (esc_p, mir, rematch_p, dv, de, eta_b, scen_d, dp)
 
         for i, ms in enumerate(candidates):
             if ms.key in used:
                 continue
             # Find best candidate not used, minimal "distance"
             best_j = None
-            best_dist = (99, 99, 99, 99, 99, 99, 99)
+            best_dist = (99, 99, 99, 99, 99, 99, 99, 99)
             for j in range(i+1, len(candidates)):
                 other = candidates[j]
                 if other.key in used or has_played(ms.key, other.key):

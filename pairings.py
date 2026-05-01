@@ -692,8 +692,18 @@ def active_players_snapshot() -> List[dict]:
 _DEF_CSS = """
 <style>
 html, body, .stApp,
-.stApp *:not([class*="material-icons"]):not([class*="MaterialIcons"]):not(.material-symbols-outlined):not(.material-symbols-rounded):not(.material-symbols-sharp) {
+.stApp *, [class*="st-"], [data-testid] {
     font-family: 'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', sans-serif !important;
+}
+/* Restore icon fonts so Material Symbols render as glyphs, not text */
+[class*="material-icons"],
+[class*="MaterialIcons"],
+[class*="material-symbols"],
+.stApp [class*="material-icons"] *,
+.stApp [class*="material-symbols"] *,
+span[data-testid="stIconMaterial"],
+span[data-testid="stIconMaterial"] * {
+    font-family: 'Material Symbols Rounded', 'Material Symbols Outlined', 'Material Icons' !important;
 }
 html, body, .stApp { background: #141414 !important; color: #f0e8d8 !important; }
 .block-container { border: 1px solid rgba(200,163,95,.35); border-radius: 14px; padding: 2.2rem 1.0rem 1.25rem; }

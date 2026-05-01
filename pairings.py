@@ -65,7 +65,7 @@ PLACEHOLDER_FACTIONS: List[str] = [
     'Wood Elf Realms', 'High Elf Realms', 'Orc & Goblin Tribes',
     'Warriors of Chaos', 'Beastmen Brayheards', 'Tomb Kings of Khemri',
     'Skaven', 'Ogre Kingdoms', 'Lizardmen', 'Chaos Dwarfs', 'Dark Elves',
-    'Daemons of Chaos', 'Vampire Counts', 'Grand Cathay'
+    'Daemons of Chaos', 'Vampire Counts', 'Grand Cathay', 'Renegade Crowns'
 ]
 PLACEHOLDER_FACTIONS_WITH_BLANK: List[str] = ["— None —", *PLACEHOLDER_FACTIONS]
 # Horus Heresy factions (Legions & forces) for signup
@@ -747,12 +747,26 @@ _MATCHUP_CSS = """
 }
 .matchup-side.left { text-align: right; }
 .matchup-side.right { text-align: left; }
+.matchup-name-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+}
+.matchup-side.left .matchup-name-row { justify-content: flex-end; }
+.matchup-side.right .matchup-name-row { justify-content: flex-start; }
+.matchup-icon {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+    flex: 0 0 auto;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));
+}
 .matchup-name {
     font-size: 1.15rem;
     font-weight: 600;
     color: #f4e9c8;
     letter-spacing: 0.2px;
-    margin-bottom: 4px;
 }
 .matchup-faction {
     font-size: 0.92rem;
@@ -900,6 +914,16 @@ _MATCHUP_CSS = """
     .matchup-side.right {
         text-align: center;
     }
+    /* On mobile, icon always sits to the left of the name on both sides */
+    .matchup-side.left .matchup-name-row,
+    .matchup-side.right .matchup-name-row {
+        justify-content: center;
+        gap: 8px;
+    }
+    .matchup-icon {
+        width: 24px;
+        height: 24px;
+    }
     .matchup-name {
         font-size: 1.18rem;
         margin-bottom: 2px;
@@ -1013,12 +1037,18 @@ def render_matchup_card(player_a: str, faction_a: Optional[str], player_b: Optio
         f'{tnt_badge}'
         f'<div class="matchup-grid">'
         f'<div class="matchup-side left">'
+        f'<div class="matchup-name-row">'
+        f'{_faction_icon_html(faction_a, "left")}'
         f'<div class="matchup-name">{player_a}</div>'
+        f'</div>'
         f'<div class="matchup-faction">{fa}</div>'
         f'</div>'
         f'<div class="matchup-vs">VS</div>'
         f'<div class="matchup-side right">'
+        f'<div class="matchup-name-row">'
         f'<div class="matchup-name">{pb_display}</div>'
+        f'{_faction_icon_html(faction_b, "right") if (player_b and not is_bye) else ""}'
+        f'</div>'
         f'<div class="matchup-faction">{fb}</div>'
         f'</div>'
         f'</div>'
@@ -1036,6 +1066,56 @@ def render_stat_strip(stats: list) -> str:
         for label, value in stats
     )
     return f'<div class="stat-strip">{tiles}</div>'
+
+
+# ===================== Faction Icons =====================
+
+def _faction_slug(name: str) -> str:
+    """Convert a faction name into a filename slug.
+    e.g. 'Orc & Goblin Tribes' -> 'orc_and_goblin_tribes'."""
+    if not name:
+        return ""
+    s = name.lower().strip()
+    s = s.replace("&", "and")
+    # Replace any non-alphanumeric characters with spaces, then collapse whitespace into underscores
+    s = "".join(ch if ch.isalnum() else " " for ch in s)
+    s = "_".join(s.split())
+    return s
+
+
+@st.cache_data(show_spinner=False)
+def _faction_icon_data_uri(faction_name: str) -> str:
+    """Return a data: URI for a faction icon, or empty string if no icon file is found.
+    Looks for icons/<slug>.svg, then .png, then .jpg in the project root."""
+    if not faction_name:
+        return ""
+    slug = _faction_slug(faction_name)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    icons_dir = os.path.join(base_dir, "icons")
+    candidates = [
+        (os.path.join(icons_dir, f"{slug}.svg"), "image/svg+xml"),
+        (os.path.join(icons_dir, f"{slug}.png"), "image/png"),
+        (os.path.join(icons_dir, f"{slug}.jpg"), "image/jpeg"),
+    ]
+    for path, mime in candidates:
+        if os.path.exists(path):
+            try:
+                with open(path, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode()
+                return f"data:{mime};base64,{b64}"
+            except Exception:
+                continue
+    return ""
+
+
+def _faction_icon_html(faction_name: Optional[str], side: str = "left") -> str:
+    """Return an <img> tag wrapped in a sided div for the matchup card, or empty string."""
+    if not faction_name:
+        return ""
+    src = _faction_icon_data_uri(faction_name)
+    if not src:
+        return ""
+    return f'<img class="matchup-icon icon-{side}" src="{src}" alt="{faction_name}" />'
 
 
 def _img_html_from_secret_or_file(primary_url: str, local_names, width: int, alt: str) -> str:

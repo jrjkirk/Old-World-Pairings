@@ -1993,7 +1993,7 @@ idx = {name:i for i,name in enumerate(order)}
 
 # --------------- Public: Call to Arms ---------------
 with T[idx["Call to Arms"]]:
-    st.subheader("Join This Week's Games")
+    st.subheader("Select a System")
 
     c1, c2 = st.columns([1,2])
     with c1:
@@ -2046,252 +2046,252 @@ with T[idx["Call to Arms"]]:
     _player_labels = [_fmt_player_label(p) for p in _players_all]
     _label_to_id = { _fmt_player_label(p): p.id for p in _players_all }
 
-    st.markdown("### Who Are You?")
-    _is_new = st.checkbox("I'm New (Create a Player Profile)")
+    with st.expander("Signup Form", expanded=True):
+        _is_new = st.checkbox("I'm New (Create a Player Profile)")
 
-    selected_player_label = None
-    first = ""
-    last = ""
+        selected_player_label = None
+        first = ""
+        last = ""
 
-    is_hh = (system == "The Horus Heresy")
-    is_kt = (system == "Kill Team")
+        is_hh = (system == "The Horus Heresy")
+        is_kt = (system == "Kill Team")
 
-    if not _is_new:
-        selected_player_label = st.selectbox(
-            "Select Your Player",
-            options=(['— Select —'] + _player_labels),
-            index=0,
-            placeholder="Type to search…"
-        )
-    else:
-        _cfa, _cfb = st.columns(2)
-        with _cfa:
-            first = st.text_input("First Name *")
-        with _cfb:
-            last = st.text_input("Last Name *")
-
-    # Look up this player's most recent signup to prefill fields
-    last_su = None
-    if not _is_new and selected_player_label and selected_player_label in _label_to_id:
-        with Session(engine) as _s_pref:
-            _pid = _label_to_id[selected_player_label]
-            last_su = _s_pref.exec(
-                select(Signup)
-                .where(
-                    (Signup.player_id == _pid) & (Signup.system == system)
-                )
-                .order_by(Signup.id.desc())
-            ).first()
-
-    # Defaults (fallback to current behaviour if no previous signup)
-    default_faction = None
-    default_pts = 3000 if is_hh else 2000
-    default_eta = "18:30"
-    default_exp = "New"
-    default_vibe = "Standard" if is_hh else "Casual"
-    default_standby = False
-    default_tnt = False
-    default_scenario = "Open Battle" if not is_hh else None
-    default_can_demo = False
-
-    if last_su:
-        if last_su.faction:
-            default_faction = last_su.faction
-        if last_su.points is not None:
-            default_pts = last_su.points
-        if last_su.eta:
-            default_eta = last_su.eta
-        if last_su.experience:
-            default_exp = last_su.experience
-        if last_su.vibe:
-            default_vibe = last_su.vibe
-        default_standby = bool(last_su.standby_ok)
-        default_tnt = bool(last_su.tnt_ok)
-        if last_su.scenario and not is_hh:
-            default_scenario = last_su.scenario
-        default_can_demo = bool(last_su.can_demo)
-
-    if not _is_new and selected_player_label and selected_player_label in _label_to_id:
-        _key_suffix = str(_label_to_id[selected_player_label])
-    else:
-        _key_suffix = "new"
-
-    with st.form("signup_form", clear_on_submit=True):
-        # Factions
-        if is_hh:
-            faction_options = HH_FACTIONS_WITH_BLANK
-        elif is_kt:
-            faction_options = KT_FACTIONS_WITH_BLANK
+        if not _is_new:
+            selected_player_label = st.selectbox(
+                "Select Your Player",
+                options=(['— Select —'] + _player_labels),
+                index=0,
+                placeholder="Type to search…"
+            )
         else:
-            faction_options = PLACEHOLDER_FACTIONS_WITH_BLANK
+            _cfa, _cfb = st.columns(2)
+            with _cfa:
+                first = st.text_input("First Name *")
+            with _cfb:
+                last = st.text_input("Last Name *")
 
-        faction_index = 0
-        if default_faction and default_faction in faction_options:
-            faction_index = faction_options.index(default_faction)
-
-        faction_label = "Your Kill Team" if is_kt else "Your Faction"
-        faction_choice = st.selectbox(faction_label, faction_options, index=faction_index, key=f"signup_faction_{system}_{_key_suffix}")
-        # Points (not shown for Kill Team)
-        if not is_kt:
-            pts = st.number_input("Army Points", min_value=0, max_value=10000, value=int(default_pts), step=50, key=f"signup_pts_{system}_{_key_suffix}")
-            if not is_hh:
-                st.caption("If selecting an Escalation game, please input backup army points limit.")
-        else:
-            pts = 0
-        # ETA dropdown 17:00-19:30
-        eta_options = []
-        for h in [17,18,19]:
-            for m in [0,15,30,45]:
-                if h == 19 and m > 30:
-                    continue
-                eta_options.append(f"{h:02d}:{m:02d}")
-        eta_label = default_eta if default_eta in eta_options else "18:30"
-        eta_default_idx = eta_options.index(eta_label) if eta_label in eta_options else 0
-        eta = st.selectbox("Estimated Time of Arrival", eta_options, index=eta_default_idx, key=f"signup_eta_{system}_{_key_suffix}")
-        exp_options = ["New", "Some", "Veteran"]
-        exp_index = exp_options.index(default_exp) if default_exp in exp_options else 0
-        exp = st.selectbox("Experience", exp_options, index=exp_index, key=f"signup_exp_{system}_{_key_suffix}")
-        # Type of game (not shown for Kill Team)
-        if is_hh:
-            vibe_options = ["Standard", "Intro"]
-            vibe_index = vibe_options.index(default_vibe) if default_vibe in vibe_options else 0
-            vibe = st.selectbox("Type of Game", vibe_options, index=vibe_index, key=f"signup_vibe_{system}_{_key_suffix}")
-        elif is_kt:
-            vibe = "Standard"
-        else:
-            vibe_options = ["Casual", "Competitive", "Escalation", "Intro", "Either"]
-            vibe_index = vibe_options.index(default_vibe) if default_vibe in vibe_options else 0
-            vibe = st.selectbox("Type of Game", vibe_options, index=vibe_index, key=f"signup_vibe_{system}_{_key_suffix}")
-        standby = st.checkbox("I Can Be on Standby", value=default_standby, key=f"signup_standby_{system}_{_key_suffix}")
-        tnt = False  # Triumph & Treachery option removed; preserved as False for back-compat with DB schema
-        # Scenario (TOW only)
-        if not is_hh and not is_kt:
-            scen_options = ["Open Battle", "Weekly Scenario"]
-            scen_index = scen_options.index(default_scenario) if default_scenario in scen_options else 0
-            scenario = st.selectbox("Scenario Preference", scen_options, index=scen_index, key=f"signup_scenario_{system}_{_key_suffix}")
-        else:
-            scenario = None
-        # Intro game leadership (not shown for Kill Team)
-        if not is_kt:
-            can_demo = st.checkbox("I Can Lead an Intro Game", value=default_can_demo, key=f"signup_demo_{system}_{_key_suffix}")
-        else:
-            can_demo = False
-
-        submitted = st.form_submit_button("Submit")
-
-    if submitted:
-        with Session(engine) as s:
-            pl = None
-            if not _is_new:
-                if selected_player_label and selected_player_label in _label_to_id:
-                    pl = s.get(Player, _label_to_id[selected_player_label])
-                else:
-                    st.error("Please select your player from the list, or tick 'I'm new' and enter your name.")
-                    st.stop()
-            else:
-                if not first.strip() or not last.strip():
-                    st.error("Please enter both first and last name.")
-                    st.stop()
-                full_name = f"{first.strip()} {last.strip()}"
-                pl = s.exec(select(Player).where(Player.name.ilike(full_name))).first()
-                if not pl:
-                    pl = Player(name=full_name, default_faction=None, active=True)
-                    s.add(pl); s.commit(); s.refresh(pl)
-
-            faction = None if faction_choice == "— None —" else faction_choice
-            week_clean = week_val.strip()
-
-            # Prevent accidental duplicate signups for the same player/week/system.
-            # If the player already has a signup, update the latest row instead
-            # of inserting a second row; remove older duplicates for this same key.
-            existing_signups = s.exec(
-                select(Signup)
-                .where(
-                    (Signup.week == week_clean)
-                    & (Signup.system == system)
-                    & (Signup.player_id == pl.id)
-                )
-                .order_by(Signup.id.desc())
-            ).all()
-
-            created_new_signup = not bool(existing_signups)
-            if existing_signups:
-                su = existing_signups[0]
-                for duplicate_su in existing_signups[1:]:
-                    s.delete(duplicate_su)
-                su.player_name = pl.name
-                su.faction = faction
-                su.points = int(pts)
-                su.eta = eta.strip() or None
-                su.experience = exp
-                su.vibe = vibe
-                su.standby_ok = standby
-                su.tnt_ok = tnt
-                su.scenario = scenario
-                su.can_demo = can_demo
-                s.add(su)
-            else:
-                su = Signup(
-                    week=week_clean, system=system,
-                    player_id=pl.id, player_name=pl.name,
-                    faction=faction, points=int(pts), eta=eta.strip() or None,
-                    experience=exp, vibe=vibe,
-                    standby_ok=standby, tnt_ok=tnt,
-                    scenario=scenario, can_demo=can_demo
-                )
-                s.add(su)
-
-            s.commit()
-            invalidate_app_caches()
-
-            player_name_for_webhook = pl.name
-
-        # Discord notification for TOW signups: only send for a brand-new signup,
-        # not for an accidental double-click/update of an existing row.
-        if created_new_signup:
-            post_discord_signup(player_name_for_webhook, faction, vibe, system, week_val.strip())
-            st.success("Thanks! You're on the list.")
-        else:
-            st.success("Your existing signup for this week has been updated.")
-
-    st.markdown("### Need to Drop Out?")
-    if not _is_new and selected_player_label and selected_player_label in _label_to_id:
-        if st.button("Drop My Signup for This Week"):
-            with Session(engine) as s:
-                # Block drops after pairings have been published for this week/system
-                gate = s.exec(
-                    select(PublishState).where(
-                        (PublishState.week == week_val.strip())
-                        & (PublishState.system == system)
+        # Look up this player's most recent signup to prefill fields
+        last_su = None
+        if not _is_new and selected_player_label and selected_player_label in _label_to_id:
+            with Session(engine) as _s_pref:
+                _pid = _label_to_id[selected_player_label]
+                last_su = _s_pref.exec(
+                    select(Signup)
+                    .where(
+                        (Signup.player_id == _pid) & (Signup.system == system)
                     )
+                    .order_by(Signup.id.desc())
                 ).first()
-                if gate and gate.published:
-                    st.warning("Pairings have been published - Contact the session organiser if you need to drop out.")
-                    st.stop()
 
-                pid = _label_to_id[selected_player_label]
-                su_rows = s.exec(
-                    select(Signup).where(
-                        (Signup.week == week_val.strip())
-                        & (Signup.system == system)
-                        & (Signup.player_id == pid)
-                    )
-                ).all()
-                if not su_rows:
-                    st.info("No signup found for you this week to drop.")
+        # Defaults (fallback to current behaviour if no previous signup)
+        default_faction = None
+        default_pts = 3000 if is_hh else 2000
+        default_eta = "18:30"
+        default_exp = "New"
+        default_vibe = "Standard" if is_hh else "Casual"
+        default_standby = False
+        default_tnt = False
+        default_scenario = "Open Battle" if not is_hh else None
+        default_can_demo = False
+
+        if last_su:
+            if last_su.faction:
+                default_faction = last_su.faction
+            if last_su.points is not None:
+                default_pts = last_su.points
+            if last_su.eta:
+                default_eta = last_su.eta
+            if last_su.experience:
+                default_exp = last_su.experience
+            if last_su.vibe:
+                default_vibe = last_su.vibe
+            default_standby = bool(last_su.standby_ok)
+            default_tnt = bool(last_su.tnt_ok)
+            if last_su.scenario and not is_hh:
+                default_scenario = last_su.scenario
+            default_can_demo = bool(last_su.can_demo)
+
+        if not _is_new and selected_player_label and selected_player_label in _label_to_id:
+            _key_suffix = str(_label_to_id[selected_player_label])
+        else:
+            _key_suffix = "new"
+
+        with st.form("signup_form", clear_on_submit=True):
+            # Factions
+            if is_hh:
+                faction_options = HH_FACTIONS_WITH_BLANK
+            elif is_kt:
+                faction_options = KT_FACTIONS_WITH_BLANK
+            else:
+                faction_options = PLACEHOLDER_FACTIONS_WITH_BLANK
+
+            faction_index = 0
+            if default_faction and default_faction in faction_options:
+                faction_index = faction_options.index(default_faction)
+
+            faction_label = "Your Kill Team" if is_kt else "Your Faction"
+            faction_choice = st.selectbox(faction_label, faction_options, index=faction_index, key=f"signup_faction_{system}_{_key_suffix}")
+            # Points (not shown for Kill Team)
+            if not is_kt:
+                pts = st.number_input("Army Points", min_value=0, max_value=10000, value=int(default_pts), step=50, key=f"signup_pts_{system}_{_key_suffix}")
+                if not is_hh:
+                    st.caption("If selecting an Escalation game, please input backup army points limit.")
+            else:
+                pts = 0
+            # ETA dropdown 17:00-19:30
+            eta_options = []
+            for h in [17,18,19]:
+                for m in [0,15,30,45]:
+                    if h == 19 and m > 30:
+                        continue
+                    eta_options.append(f"{h:02d}:{m:02d}")
+            eta_label = default_eta if default_eta in eta_options else "18:30"
+            eta_default_idx = eta_options.index(eta_label) if eta_label in eta_options else 0
+            eta = st.selectbox("Estimated Time of Arrival", eta_options, index=eta_default_idx, key=f"signup_eta_{system}_{_key_suffix}")
+            exp_options = ["New", "Some", "Veteran"]
+            exp_index = exp_options.index(default_exp) if default_exp in exp_options else 0
+            exp = st.selectbox("Experience", exp_options, index=exp_index, key=f"signup_exp_{system}_{_key_suffix}")
+            # Type of game (not shown for Kill Team)
+            if is_hh:
+                vibe_options = ["Standard", "Intro"]
+                vibe_index = vibe_options.index(default_vibe) if default_vibe in vibe_options else 0
+                vibe = st.selectbox("Type of Game", vibe_options, index=vibe_index, key=f"signup_vibe_{system}_{_key_suffix}")
+            elif is_kt:
+                vibe = "Standard"
+            else:
+                vibe_options = ["Casual", "Competitive", "Escalation", "Intro", "Either"]
+                vibe_index = vibe_options.index(default_vibe) if default_vibe in vibe_options else 0
+                vibe = st.selectbox("Type of Game", vibe_options, index=vibe_index, key=f"signup_vibe_{system}_{_key_suffix}")
+            standby = st.checkbox("I Can Be on Standby", value=default_standby, key=f"signup_standby_{system}_{_key_suffix}")
+            tnt = False  # Triumph & Treachery option removed; preserved as False for back-compat with DB schema
+            # Scenario (TOW only)
+            if not is_hh and not is_kt:
+                scen_options = ["Open Battle", "Weekly Scenario"]
+                scen_index = scen_options.index(default_scenario) if default_scenario in scen_options else 0
+                scenario = st.selectbox("Scenario Preference", scen_options, index=scen_index, key=f"signup_scenario_{system}_{_key_suffix}")
+            else:
+                scenario = None
+            # Intro game leadership (not shown for Kill Team)
+            if not is_kt:
+                can_demo = st.checkbox("I Can Lead an Intro Game", value=default_can_demo, key=f"signup_demo_{system}_{_key_suffix}")
+            else:
+                can_demo = False
+
+            submitted = st.form_submit_button("Submit")
+
+        if submitted:
+            with Session(engine) as s:
+                pl = None
+                if not _is_new:
+                    if selected_player_label and selected_player_label in _label_to_id:
+                        pl = s.get(Player, _label_to_id[selected_player_label])
+                    else:
+                        st.error("Please select your player from the list, or tick 'I'm new' and enter your name.")
+                        st.stop()
                 else:
-                    # Use the first matching signup row to get player name/faction/vibe before deleting
-                    ref = su_rows[0]
-                    for su in su_rows:
-                        s.delete(su)
-                    s.commit()
-                    invalidate_app_caches()
-                    st.success("You've been removed from this week's signup.")
-                    # Discord notification for TOW drops
-                    if system == "The Old World":
-                        post_discord_drop(ref.player_name, ref.faction, ref.vibe, week_val.strip())
-    else:
-        st.caption("Select your player above to drop an existing signup.")
+                    if not first.strip() or not last.strip():
+                        st.error("Please enter both first and last name.")
+                        st.stop()
+                    full_name = f"{first.strip()} {last.strip()}"
+                    pl = s.exec(select(Player).where(Player.name.ilike(full_name))).first()
+                    if not pl:
+                        pl = Player(name=full_name, default_faction=None, active=True)
+                        s.add(pl); s.commit(); s.refresh(pl)
+
+                faction = None if faction_choice == "— None —" else faction_choice
+                week_clean = week_val.strip()
+
+                # Prevent accidental duplicate signups for the same player/week/system.
+                # If the player already has a signup, update the latest row instead
+                # of inserting a second row; remove older duplicates for this same key.
+                existing_signups = s.exec(
+                    select(Signup)
+                    .where(
+                        (Signup.week == week_clean)
+                        & (Signup.system == system)
+                        & (Signup.player_id == pl.id)
+                    )
+                    .order_by(Signup.id.desc())
+                ).all()
+
+                created_new_signup = not bool(existing_signups)
+                if existing_signups:
+                    su = existing_signups[0]
+                    for duplicate_su in existing_signups[1:]:
+                        s.delete(duplicate_su)
+                    su.player_name = pl.name
+                    su.faction = faction
+                    su.points = int(pts)
+                    su.eta = eta.strip() or None
+                    su.experience = exp
+                    su.vibe = vibe
+                    su.standby_ok = standby
+                    su.tnt_ok = tnt
+                    su.scenario = scenario
+                    su.can_demo = can_demo
+                    s.add(su)
+                else:
+                    su = Signup(
+                        week=week_clean, system=system,
+                        player_id=pl.id, player_name=pl.name,
+                        faction=faction, points=int(pts), eta=eta.strip() or None,
+                        experience=exp, vibe=vibe,
+                        standby_ok=standby, tnt_ok=tnt,
+                        scenario=scenario, can_demo=can_demo
+                    )
+                    s.add(su)
+
+                s.commit()
+                invalidate_app_caches()
+
+                player_name_for_webhook = pl.name
+
+            # Discord notification for TOW signups: only send for a brand-new signup,
+            # not for an accidental double-click/update of an existing row.
+            if created_new_signup:
+                post_discord_signup(player_name_for_webhook, faction, vibe, system, week_val.strip())
+                st.success("Thanks! You're on the list.")
+            else:
+                st.success("Your existing signup for this week has been updated.")
+
+        st.markdown("### Need to Drop Out?")
+        if not _is_new and selected_player_label and selected_player_label in _label_to_id:
+            if st.button("Drop My Signup for This Week"):
+                with Session(engine) as s:
+                    # Block drops after pairings have been published for this week/system
+                    gate = s.exec(
+                        select(PublishState).where(
+                            (PublishState.week == week_val.strip())
+                            & (PublishState.system == system)
+                        )
+                    ).first()
+                    if gate and gate.published:
+                        st.warning("Pairings have been published - Contact the session organiser if you need to drop out.")
+                        st.stop()
+
+                    pid = _label_to_id[selected_player_label]
+                    su_rows = s.exec(
+                        select(Signup).where(
+                            (Signup.week == week_val.strip())
+                            & (Signup.system == system)
+                            & (Signup.player_id == pid)
+                        )
+                    ).all()
+                    if not su_rows:
+                        st.info("No signup found for you this week to drop.")
+                    else:
+                        # Use the first matching signup row to get player name/faction/vibe before deleting
+                        ref = su_rows[0]
+                        for su in su_rows:
+                            s.delete(su)
+                        s.commit()
+                        invalidate_app_caches()
+                        st.success("You've been removed from this week's signup.")
+                        # Discord notification for TOW drops
+                        if system == "The Old World":
+                            post_discord_drop(ref.player_name, ref.faction, ref.vibe, week_val.strip())
+        else:
+            st.caption("Select your player above to drop an existing signup.")
 
 
 # --------------- Public: Pairings view ---------------
@@ -2510,103 +2510,103 @@ with T[idx["Old World League"]]:
         st.info("League rankings will appear here once league results have been submitted.")
 
     st.divider()
-    st.markdown("### Results Submission")
-    result_players = sorted(active_players_snapshot(), key=lambda p: p["name"].lower())
+    with st.expander("Results Submission", expanded=False):
+        result_players = sorted(active_players_snapshot(), key=lambda p: p["name"].lower())
 
-    player_label_options = ["— None —", *[f"#{p['id']} — {p['name']}" for p in result_players]]
-    player_label_to_id = {f"#{p['id']} — {p['name']}": p["id"] for p in result_players}
-    player_id_to_name = {p["id"]: p["name"] for p in result_players}
+        player_label_options = ["— None —", *[f"#{p['id']} — {p['name']}" for p in result_players]]
+        player_label_to_id = {f"#{p['id']} — {p['name']}": p["id"] for p in result_players}
+        player_id_to_name = {p["id"]: p["name"] for p in result_players}
 
-    if len(player_label_options) > 1:
-        with st.form("old_world_league_result_form", clear_on_submit=True):
-            c1, c_vs, c2 = st.columns([2, 0.35, 2])
-            league_faction_options = ["— None —", *PLACEHOLDER_FACTIONS]
-            painting_bonus_options = ["— None —", "Partially Painted", "Fully Painted"]
-            with c1:
-                player_1_label = st.selectbox("Player 1", player_label_options, index=0, key="owl_results_player_1")
-                player_1_faction_choice = st.selectbox("Player 1 Faction", league_faction_options, index=0, key="owl_results_player_1_faction")
-                player_1_painting_bonus_choice = st.selectbox("Player 1 Painting Bonus", painting_bonus_options, index=0, key="owl_results_player_1_painting_bonus")
-            with c_vs:
-                st.markdown("<div style='text-align:center;font-weight:700;padding-top:2.1rem'>vs</div>", unsafe_allow_html=True)
-            with c2:
-                player_2_label = st.selectbox("Player 2", player_label_options, index=0, key="owl_results_player_2")
-                player_2_faction_choice = st.selectbox("Player 2 Faction", league_faction_options, index=0, key="owl_results_player_2_faction")
-                player_2_painting_bonus_choice = st.selectbox("Player 2 Painting Bonus", painting_bonus_options, index=0, key="owl_results_player_2_painting_bonus")
+        if len(player_label_options) > 1:
+            with st.form("old_world_league_result_form", clear_on_submit=True):
+                c1, c_vs, c2 = st.columns([2, 0.35, 2])
+                league_faction_options = ["— None —", *PLACEHOLDER_FACTIONS]
+                painting_bonus_options = ["— None —", "Partially Painted", "Fully Painted"]
+                with c1:
+                    player_1_label = st.selectbox("Player 1", player_label_options, index=0, key="owl_results_player_1")
+                    player_1_faction_choice = st.selectbox("Player 1 Faction", league_faction_options, index=0, key="owl_results_player_1_faction")
+                    player_1_painting_bonus_choice = st.selectbox("Player 1 Painting Bonus", painting_bonus_options, index=0, key="owl_results_player_1_painting_bonus")
+                with c_vs:
+                    st.markdown("<div style='text-align:center;font-weight:700;padding-top:2.1rem'>vs</div>", unsafe_allow_html=True)
+                with c2:
+                    player_2_label = st.selectbox("Player 2", player_label_options, index=0, key="owl_results_player_2")
+                    player_2_faction_choice = st.selectbox("Player 2 Faction", league_faction_options, index=0, key="owl_results_player_2_faction")
+                    player_2_painting_bonus_choice = st.selectbox("Player 2 Painting Bonus", painting_bonus_options, index=0, key="owl_results_player_2_painting_bonus")
 
-            game_type_choice = st.selectbox(
-                "Game Type",
-                ["Casual", "Competitive"],
-                index=1,
-                key="owl_results_game_type",
-                help="Casual uses K=10; Competitive uses K=40 for ELO changes.",
-            )
-            result_choice = st.selectbox(
-                "Result",
-                ["Player 1 Victory", "Player 2 Victory", "Draw"],
-                index=0,
-                key="owl_results_result",
-            )
-            submitted_league_result = st.form_submit_button("Submit Result")
+                game_type_choice = st.selectbox(
+                    "Game Type",
+                    ["Casual", "Competitive"],
+                    index=1,
+                    key="owl_results_game_type",
+                    help="Casual uses K=10; Competitive uses K=40 for ELO changes.",
+                )
+                result_choice = st.selectbox(
+                    "Result",
+                    ["Player 1 Victory", "Player 2 Victory", "Draw"],
+                    index=0,
+                    key="owl_results_result",
+                )
+                submitted_league_result = st.form_submit_button("Submit Result")
 
-        if submitted_league_result:
-            if player_1_label == "— None —" or player_2_label == "— None —":
-                st.error("Please select both players before submitting a result.")
-            elif player_1_label == player_2_label:
-                st.error("Please select two different players before submitting a result.")
-            else:
-                player_1_id = player_label_to_id.get(player_1_label)
-                player_2_id = player_label_to_id.get(player_2_label)
-                player_1_name = player_id_to_name.get(player_1_id, player_1_label)
-                player_2_name = player_id_to_name.get(player_2_id, player_2_label)
-                player_1_faction = None if player_1_faction_choice == "— None —" else player_1_faction_choice
-                player_2_faction = None if player_2_faction_choice == "— None —" else player_2_faction_choice
-                player_1_painting_bonus = None if player_1_painting_bonus_choice == "— None —" else player_1_painting_bonus_choice
-                player_2_painting_bonus = None if player_2_painting_bonus_choice == "— None —" else player_2_painting_bonus_choice
+            if submitted_league_result:
+                if player_1_label == "— None —" or player_2_label == "— None —":
+                    st.error("Please select both players before submitting a result.")
+                elif player_1_label == player_2_label:
+                    st.error("Please select two different players before submitting a result.")
+                else:
+                    player_1_id = player_label_to_id.get(player_1_label)
+                    player_2_id = player_label_to_id.get(player_2_label)
+                    player_1_name = player_id_to_name.get(player_1_id, player_1_label)
+                    player_2_name = player_id_to_name.get(player_2_id, player_2_label)
+                    player_1_faction = None if player_1_faction_choice == "— None —" else player_1_faction_choice
+                    player_2_faction = None if player_2_faction_choice == "— None —" else player_2_faction_choice
+                    player_1_painting_bonus = None if player_1_painting_bonus_choice == "— None —" else player_1_painting_bonus_choice
+                    player_2_painting_bonus = None if player_2_painting_bonus_choice == "— None —" else player_2_painting_bonus_choice
 
-                ensure_league_results_table()
-                result_date_clean = uk_date_str(date.today())
+                    ensure_league_results_table()
+                    result_date_clean = uk_date_str(date.today())
 
-                with Session(engine) as s:
-                    # Guard against accidental double-clicks: if this exact
-                    # league result has already been submitted today, do not
-                    # create a second copy. Different results or rematches can
-                    # still be submitted intentionally.
-                    existing_result = s.exec(
-                        select(LeagueResult).where(
-                            (LeagueResult.player_1_id == player_1_id)
-                            & (LeagueResult.player_2_id == player_2_id)
-                            & (LeagueResult.result == result_choice)
-                            & (LeagueResult.result_date == result_date_clean)
-                            & (LeagueResult.player_1_faction == player_1_faction)
-                            & (LeagueResult.player_2_faction == player_2_faction)
-                            & (LeagueResult.player_1_painting_bonus == player_1_painting_bonus)
-                            & (LeagueResult.player_2_painting_bonus == player_2_painting_bonus)
-                            & (LeagueResult.game_type == game_type_choice)
-                        )
-                    ).first()
+                    with Session(engine) as s:
+                        # Guard against accidental double-clicks: if this exact
+                        # league result has already been submitted today, do not
+                        # create a second copy. Different results or rematches can
+                        # still be submitted intentionally.
+                        existing_result = s.exec(
+                            select(LeagueResult).where(
+                                (LeagueResult.player_1_id == player_1_id)
+                                & (LeagueResult.player_2_id == player_2_id)
+                                & (LeagueResult.result == result_choice)
+                                & (LeagueResult.result_date == result_date_clean)
+                                & (LeagueResult.player_1_faction == player_1_faction)
+                                & (LeagueResult.player_2_faction == player_2_faction)
+                                & (LeagueResult.player_1_painting_bonus == player_1_painting_bonus)
+                                & (LeagueResult.player_2_painting_bonus == player_2_painting_bonus)
+                                & (LeagueResult.game_type == game_type_choice)
+                            )
+                        ).first()
 
-                    if existing_result:
-                        st.info("This exact league result has already been submitted, so a duplicate was not created.")
-                    else:
-                        lr = LeagueResult(
-                            player_1_id=player_1_id,
-                            player_1_name=player_1_name,
-                            player_2_id=player_2_id,
-                            player_2_name=player_2_name,
-                            player_1_faction=player_1_faction,
-                            player_2_faction=player_2_faction,
-                            player_1_painting_bonus=player_1_painting_bonus,
-                            player_2_painting_bonus=player_2_painting_bonus,
-                            game_type=game_type_choice,
-                            result=result_choice,
-                            result_date=result_date_clean,
-                        )
-                        s.add(lr)
-                        s.commit()
-                        recalc_league_ratings()
-                        st.success("League result submitted and ELO rankings recalculated.")
-    else:
-        st.info("No player profiles found yet. Add players via the signup flow first.")
+                        if existing_result:
+                            st.info("This exact league result has already been submitted, so a duplicate was not created.")
+                        else:
+                            lr = LeagueResult(
+                                player_1_id=player_1_id,
+                                player_1_name=player_1_name,
+                                player_2_id=player_2_id,
+                                player_2_name=player_2_name,
+                                player_1_faction=player_1_faction,
+                                player_2_faction=player_2_faction,
+                                player_1_painting_bonus=player_1_painting_bonus,
+                                player_2_painting_bonus=player_2_painting_bonus,
+                                game_type=game_type_choice,
+                                result=result_choice,
+                                result_date=result_date_clean,
+                            )
+                            s.add(lr)
+                            s.commit()
+                            recalc_league_ratings()
+                            st.success("League result submitted and ELO rankings recalculated.")
+        else:
+            st.info("No player profiles found yet. Add players via the signup flow first.")
 
 
 # --------------- Admin: Signups ---------------

@@ -581,7 +581,7 @@ def recalc_league_ratings() -> None:
     invalidate_app_caches()
 
 @st.cache_data(ttl=600, show_spinner=False)
-def _league_faction_and_games_maps() -> Tuple[Dict[int, str], Dict[int, int]]:
+def _league_faction_and_games_maps() -> Tuple[Dict[int, str], Dict[int, int], Dict[int, Tuple[int, int, int]]]:
     ensure_league_results_table()
     with Session(engine) as s:
         results = s.exec(select(LeagueResult).order_by(LeagueResult.id)).all()
@@ -589,6 +589,7 @@ def _league_faction_and_games_maps() -> Tuple[Dict[int, str], Dict[int, int]]:
     faction_counts: Dict[int, Dict[str, int]] = {}
     faction_last_seen: Dict[Tuple[int, str], int] = {}
     games_played: Dict[int, int] = {}
+    wdl: Dict[int, List[int]] = {}  # pid -> [wins, draws, losses]
 
     for lr in results:
         row_id = int(lr.id or 0)
@@ -607,6 +608,24 @@ def _league_faction_and_games_maps() -> Tuple[Dict[int, str], Dict[int, int]]:
             pid_factions[faction_clean] = pid_factions.get(faction_clean, 0) + 1
             faction_last_seen[(pid_int, faction_clean)] = max(faction_last_seen.get((pid_int, faction_clean), 0), row_id)
 
+        # Tally W/D/L per player based on the result string
+        result = (lr.result or "").strip()
+        p1, p2 = lr.player_1_id, lr.player_2_id
+        if p1 is not None:
+            wdl.setdefault(int(p1), [0, 0, 0])
+        if p2 is not None:
+            wdl.setdefault(int(p2), [0, 0, 0])
+        if result == "Player 1 Victory":
+            if p1 is not None: wdl[int(p1)][0] += 1
+            if p2 is not None: wdl[int(p2)][2] += 1
+        elif result == "Player 2 Victory":
+            if p1 is not None: wdl[int(p1)][2] += 1
+            if p2 is not None: wdl[int(p2)][0] += 1
+        else:
+            # Anything else (typically a Draw) counts as a draw for both
+            if p1 is not None: wdl[int(p1)][1] += 1
+            if p2 is not None: wdl[int(p2)][1] += 1
+
     faction_map: Dict[int, str] = {}
     for pid, facs in faction_counts.items():
         faction_map[pid] = sorted(
@@ -614,7 +633,8 @@ def _league_faction_and_games_maps() -> Tuple[Dict[int, str], Dict[int, int]]:
             key=lambda kv: (-kv[1], -faction_last_seen.get((pid, kv[0]), 0), kv[0]),
         )[0][0]
 
-    return faction_map, games_played
+    wdl_map: Dict[int, Tuple[int, int, int]] = {pid: tuple(v) for pid, v in wdl.items()}
+    return faction_map, games_played, wdl_map
 
 @st.cache_data(ttl=600, show_spinner=False)
 def league_rankings_rows() -> List[dict]:
@@ -628,13 +648,19 @@ def league_rankings_rows() -> List[dict]:
         with Session(engine) as s:
             ratings = s.exec(select(LeagueRating).order_by(LeagueRating.rating.desc(), LeagueRating.player_name)).all()
 
-    faction_map, games_played_map = _league_faction_and_games_maps()
+    faction_map, games_played_map, wdl_map = _league_faction_and_games_maps()
+
+    def _wdl_str(pid: int) -> str:
+        w, d, l = wdl_map.get(pid, (0, 0, 0))
+        return f"{w}/{d}/{l}"
+
     return [
         {
             "Rank": idx + 1,
             "ELO": round(r.rating),
             "Name": r.player_name,
             "Most Played Faction": faction_map.get(r.player_id, "—"),
+            "W/D/L": _wdl_str(r.player_id),
             "Games Played": games_played_map.get(r.player_id, 0),
         }
         for idx, r in enumerate(ratings)
@@ -2594,6 +2620,13 @@ with T[idx["Old World League"]]:
     filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));
 }
 .league-faction-name { color: #d4c8a0; font-style: italic; }
+.league-wdl {
+    text-align: center;
+    width: 96px;
+    color: #d4c8a0;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.4px;
+}
 .league-games {
     text-align: center;
     width: 90px;
@@ -2606,6 +2639,7 @@ with T[idx["Old World League"]]:
     .league-table thead th, .league-table tbody td { padding: 8px 8px; font-size: 0.85rem; }
     .league-rank { width: 40px; }
     .league-elo { width: 56px; }
+    .league-wdl { width: 70px; letter-spacing: 0.2px; }
     .league-games { width: 56px; }
     .league-faction-icon { width: 24px; height: 24px; }
     .league-rank-medal { font-size: 1.2rem; }
@@ -2638,6 +2672,7 @@ with T[idx["Old World League"]]:
                 f'<td class="league-elo">{r.get("ELO", "")}</td>'
                 f'<td class="league-name">{r.get("Name", "")}</td>'
                 f'<td>{faction_cell}</td>'
+                f'<td class="league-wdl">{r.get("W/D/L", "0/0/0")}</td>'
                 f'<td class="league-games">{r.get("Games Played", 0)}</td>'
                 f'</tr>'
             )
@@ -2649,6 +2684,7 @@ with T[idx["Old World League"]]:
             '<th class="center">ELO</th>'
             '<th>Name</th>'
             '<th>Most Played Faction</th>'
+            '<th class="center">W/D/L</th>'
             '<th class="center">Games</th>'
             '</tr></thead>'
             f'<tbody>{"".join(rows_html)}</tbody>'
@@ -2656,7 +2692,7 @@ with T[idx["Old World League"]]:
         )
         st.markdown(table_html, unsafe_allow_html=True)
     else:
-        empty_league = pd.DataFrame(columns=["Rank", "ELO", "Name", "Most Played Faction", "Games Played"])
+        empty_league = pd.DataFrame(columns=["Rank", "ELO", "Name", "Most Played Faction", "W/D/L", "Games Played"])
         st.dataframe(empty_league, width='stretch', hide_index=True)
         st.info("League rankings will appear here once league results have been submitted.")
 

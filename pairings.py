@@ -56,7 +56,27 @@ DISCORD_URL = _get_secret("DISCORD_URL", "")
 DISCORD_LOGO_URL = _get_secret("DISCORD_LOGO_URL", "")
 DISCORD_SIGNUP_WEBHOOK_URL = _get_secret("DISCORD_SIGNUP_WEBHOOK_URL", "")
 DISCORD_CALL_TO_ARMS_WEBHOOK_URL = _get_secret("DISCORD_CALL_TO_ARMS_WEBHOOK_URL", "")
+# Legacy single pairings webhook — kept for back-compat; new code prefers the per-system ones below
 DISCORD_PAIRINGS_WEBHOOK_URL = _get_secret("DISCORD_PAIRINGS_WEBHOOK_URL", "")
+# Per-system pairings webhooks
+DISCORD_TOW_PAIRINGS_WEBHOOK_URL = _get_secret("DISCORD_TOW_PAIRINGS_WEBHOOK_URL", "")
+DISCORD_HH_PAIRINGS_WEBHOOK_URL = _get_secret("DISCORD_HH_PAIRINGS_WEBHOOK_URL", "")
+DISCORD_KT_PAIRINGS_WEBHOOK_URL = _get_secret("DISCORD_KT_PAIRINGS_WEBHOOK_URL", "")
+DISCORD_LEAGUE_RESULT_WEBHOOK_URL = _get_secret("DISCORD_LEAGUE_RESULT_WEBHOOK_URL", "")
+DISCORD_LEAGUE_RANKINGS_WEBHOOK_URL = _get_secret("DISCORD_LEAGUE_RANKINGS_WEBHOOK_URL", "")
+DISCORD_HH_CALL_TO_ARMS_WEBHOOK_URL = _get_secret("DISCORD_HH_CALL_TO_ARMS_WEBHOOK_URL", "")
+APP_PUBLIC_URL = _get_secret("APP_PUBLIC_URL", "")
+
+
+def _pairings_webhook_for_system(system: str) -> str:
+    """Return the per-system pairings webhook URL, falling back to the legacy generic one."""
+    if system == "The Old World" and DISCORD_TOW_PAIRINGS_WEBHOOK_URL:
+        return DISCORD_TOW_PAIRINGS_WEBHOOK_URL
+    if system == "The Horus Heresy" and DISCORD_HH_PAIRINGS_WEBHOOK_URL:
+        return DISCORD_HH_PAIRINGS_WEBHOOK_URL
+    if system == "Kill Team" and DISCORD_KT_PAIRINGS_WEBHOOK_URL:
+        return DISCORD_KT_PAIRINGS_WEBHOOK_URL
+    return DISCORD_PAIRINGS_WEBHOOK_URL
 SYSTEMS: List[str] = ["The Old World", "The Horus Heresy", "Kill Team"]
 TNT_SUGGESTIONS = {}
 # Shared factions list can be tailored per-system later; re-using OW list as a baseline.
@@ -1788,14 +1808,15 @@ def render_league_rankings_image(rows: list[dict]) -> io.BytesIO | None:
 
 def post_pairings_table_to_discord(rows: list[dict], week: str, system: str) -> None:
     """
-    Post the public pairings table to Discord via the pairings webhook.
-    Uses an image of the table when possible, with a text title, and falls back to ASCII.
-    Does nothing if no webhook is configured.
+    Post the public pairings table to Discord via the per-system pairings webhook.
+    Uses an image of the table when possible and falls back to ASCII.
+    Does nothing if no webhook is configured for the chosen system.
     """
-    if not DISCORD_PAIRINGS_WEBHOOK_URL:
+    webhook_url = _pairings_webhook_for_system(system)
+    if not webhook_url:
         return
 
-    title = f"**{system} Pairings — {week}**"
+    title = "⚔️ **Pairings for tomorrow** ⚔️"
 
     img_buf = None
     try:
@@ -1808,15 +1829,15 @@ def post_pairings_table_to_discord(rows: list[dict], week: str, system: str) -> 
             files = {"file": ("pairings.png", img_buf, "image/png")}
             payload = {"content": title}
             requests.post(
-                DISCORD_PAIRINGS_WEBHOOK_URL,
+                webhook_url,
                 data={"payload_json": json.dumps(payload)},
                 files=files,
                 timeout=10,
             )
         else:
-            content = render_pairings_ascii_table(rows, week, system)
+            content = title + "\n\n" + render_pairings_ascii_table(rows, week, system)
             requests.post(
-                DISCORD_PAIRINGS_WEBHOOK_URL,
+                webhook_url,
                 json={"content": content},
                 timeout=10,
             )
@@ -1936,6 +1957,131 @@ def run_scheduled_tow_call_to_arms() -> None:
 
     # Use the default upcoming Wednesday
     post_tow_call_to_arms_with_image(scenario)
+
+
+# ===================== League Result Discord Post =====================
+
+def post_league_result_to_discord(
+    p1_name: str, p1_faction: Optional[str], p1_before: Optional[float], p1_after: Optional[float],
+    p2_name: str, p2_faction: Optional[str], p2_before: Optional[float], p2_after: Optional[float],
+    result: str,
+) -> None:
+    """Post a league result announcement to Discord, called after a result is submitted."""
+    if not DISCORD_LEAGUE_RESULT_WEBHOOK_URL:
+        return
+
+    def _delta_str(before: Optional[float], after: Optional[float]) -> str:
+        if before is None or after is None:
+            return "—"
+        delta = after - before
+        sign = "+" if delta >= 0 else ""
+        return f"{sign}{delta:.0f}"
+
+    p1_after_disp = round(p1_after) if p1_after is not None else "—"
+    p2_after_disp = round(p2_after) if p2_after is not None else "—"
+    p1_delta = _delta_str(p1_before, p1_after)
+    p2_delta = _delta_str(p2_before, p2_after)
+
+    f1 = p1_faction or "—"
+    f2 = p2_faction or "—"
+
+    if result == "Player 1 Victory":
+        winner_line = f"🏆 Victor: **{p1_name}**"
+        header = "⚔️ **A Battle Concludes!** ⚔️"
+        flavour = "*The standings shift. Who will rise next?*"
+    elif result == "Player 2 Victory":
+        winner_line = f"🏆 Victor: **{p2_name}**"
+        header = "⚔️ **A Battle Concludes!** ⚔️"
+        flavour = "*The standings shift. Who will rise next?*"
+    else:
+        winner_line = "🤝 The contest ended in a **draw**."
+        header = "⚔️ **A Hard-Fought Stalemate** ⚔️"
+        flavour = "*Honour preserved on both sides. The contest continues.*"
+
+    content = (
+        f"{header}\n\n"
+        f"**{p1_name}** ({f1}) vs **{p2_name}** ({f2})\n\n"
+        f"{winner_line}\n\n"
+        f"ELO Shift:\n"
+        f"• {p1_name}: {p1_delta} → **{p1_after_disp}**\n"
+        f"• {p2_name}: {p2_delta} → **{p2_after_disp}**\n\n"
+        f"{flavour}"
+    )
+
+    try:
+        requests.post(DISCORD_LEAGUE_RESULT_WEBHOOK_URL, json={"content": content}, timeout=10)
+    except Exception:
+        pass
+
+
+# ===================== Weekly League Rankings Discord Post =====================
+
+def post_league_rankings_to_discord() -> None:
+    """Post the latest league rankings PNG to Discord. Used by a weekly GitHub Actions job."""
+    if not DISCORD_LEAGUE_RANKINGS_WEBHOOK_URL:
+        return
+
+    rankings = league_rankings_rows()
+    if not rankings:
+        return
+
+    rankings_png = render_league_rankings_image(rankings)
+    if rankings_png is None:
+        return
+
+    content = (
+        "📜 **The Old World League Standings** 📜\n\n"
+        "The latest rankings have been recorded by the keepers of the chronicle. "
+        "View who climbs, who falls, and who clings to the top of the table.\n\n"
+        "*Submit your results to keep the standings sharp. The throne is never safe.*"
+    )
+
+    try:
+        files = {"file": ("league_rankings.png", rankings_png.getvalue(), "image/png")}
+        requests.post(
+            DISCORD_LEAGUE_RANKINGS_WEBHOOK_URL,
+            data={"payload_json": json.dumps({"content": content})},
+            files=files,
+            timeout=15,
+        )
+    except Exception:
+        pass
+
+
+def run_scheduled_league_rankings_post() -> None:
+    """Entry point for GitHub Actions to post the weekly league rankings."""
+    post_league_rankings_to_discord()
+
+
+# ===================== Horus Heresy Call to Arms =====================
+
+def post_hh_call_to_arms() -> None:
+    """Post the weekly Horus Heresy Call to Arms message to Discord."""
+    if not DISCORD_HH_CALL_TO_ARMS_WEBHOOK_URL:
+        return
+
+    signup_url = APP_PUBLIC_URL or "https://your-app-url.streamlit.app"
+    content = (
+        "⚔️ **The Horus Heresy — Call to Arms** ⚔️\n\n"
+        "*\"In the long shadow of the Emperor's wrath, brothers turn against brothers. "
+        "The galaxy burns, and the loyal and the lost alike must answer the call to war.\"*\n\n"
+        f"Friday's gathering approaches.  Sign up here: {signup_url}"
+    )
+
+    try:
+        requests.post(
+            DISCORD_HH_CALL_TO_ARMS_WEBHOOK_URL,
+            json={"content": content},
+            timeout=10,
+        )
+    except Exception:
+        pass
+
+
+def run_scheduled_hh_call_to_arms() -> None:
+    """Entry point for GitHub Actions to post the weekly HH Call to Arms."""
+    post_hh_call_to_arms()
+
 def _parse_eta(sval) -> Optional[time]:
     """Parse an HH:MM string to a time object, returning None on failure."""
     if not sval:
@@ -3001,6 +3147,25 @@ with T[idx["Old World League"]]:
                             s.add(lr)
                             s.commit()
                             recalc_league_ratings()
+                            # Refetch so we have populated rating_before/after fields after recalc
+                            new_id = lr.id
+                            with Session(engine) as s2:
+                                fresh = s2.get(LeagueResult, new_id) if new_id else None
+                            if fresh is not None:
+                                try:
+                                    post_league_result_to_discord(
+                                        p1_name=fresh.player_1_name,
+                                        p1_faction=getattr(fresh, "player_1_faction", None),
+                                        p1_before=fresh.player_1_rating_before,
+                                        p1_after=fresh.player_1_rating_after,
+                                        p2_name=fresh.player_2_name,
+                                        p2_faction=getattr(fresh, "player_2_faction", None),
+                                        p2_before=fresh.player_2_rating_before,
+                                        p2_after=fresh.player_2_rating_after,
+                                        result=fresh.result,
+                                    )
+                                except Exception:
+                                    pass
                             st.success("League result submitted and ELO rankings recalculated.")
         else:
             st.info("No player profiles found yet. Add players via the signup flow first.")
@@ -3420,16 +3585,18 @@ if "Pairings Admin" in idx:
                 else:
                     st.info("No changes detected.")
 
-            # Discord: post public-style pairings table to webhook, if configured
-            if DISCORD_PAIRINGS_WEBHOOK_URL:
+            # Discord: post public-style pairings table to the per-system webhook, if configured
+            _resolved_webhook = _pairings_webhook_for_system(sys_pick)
+            if _resolved_webhook:
                 if st.button("Post Pairings to Discord"):
                     if public_rows_for_discord:
                         post_pairings_table_to_discord(public_rows_for_discord, week_lookup, sys_pick)
-                        st.success("Posted pairings to Discord.")
+                        st.success(f"Posted {sys_pick} pairings to Discord.")
                     else:
                         st.warning("No pairings to post to Discord.")
             else:
-                st.caption("Configure DISCORD_PAIRINGS_WEBHOOK_URL to enable Discord pairings posting.")
+                st.caption(f"No Discord webhook configured for {sys_pick}. "
+                           "Set the appropriate DISCORD_*_PAIRINGS_WEBHOOK_URL secret to enable.")
 
 
             with st.form("delete_pairs_form", clear_on_submit=True):

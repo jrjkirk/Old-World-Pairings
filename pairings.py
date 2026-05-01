@@ -704,6 +704,159 @@ def apply_theme():
     st.markdown(_DEF_CSS, unsafe_allow_html=True)
 
 
+# ===================== Matchup Card Styling =====================
+
+_MATCHUP_CSS = """
+<style>
+.matchup-card {
+    background: linear-gradient(135deg, rgba(30,30,40,0.92) 0%, rgba(20,20,30,0.95) 100%);
+    border: 1px solid rgba(180,150,90,0.35);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 14px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04);
+    color: #e8e4d8;
+    font-family: 'Inter', system-ui, sans-serif;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.matchup-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+.matchup-grid {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 16px;
+    align-items: center;
+}
+.matchup-side {
+    text-align: center;
+}
+.matchup-side.left { text-align: right; }
+.matchup-side.right { text-align: left; }
+.matchup-name {
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: #f4e9c8;
+    letter-spacing: 0.2px;
+    margin-bottom: 4px;
+}
+.matchup-faction {
+    font-size: 0.92rem;
+    color: #b8a878;
+    font-style: italic;
+}
+.matchup-vs {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: #c9a14a;
+    font-family: 'Cinzel', 'Georgia', serif;
+    text-shadow: 0 0 8px rgba(201,161,74,0.4);
+    letter-spacing: 1px;
+    padding: 0 6px;
+}
+.matchup-meta {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px dashed rgba(180,150,90,0.25);
+    display: flex;
+    justify-content: center;
+    gap: 22px;
+    font-size: 0.88rem;
+    color: #d4c8a0;
+    flex-wrap: wrap;
+}
+.matchup-meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.matchup-meta-label {
+    opacity: 0.7;
+    text-transform: uppercase;
+    font-size: 0.72rem;
+    letter-spacing: 0.6px;
+}
+.matchup-meta-value {
+    font-weight: 600;
+    color: #f0e4bc;
+}
+.matchup-bye .matchup-side.right .matchup-name {
+    color: #8a8270;
+    font-style: italic;
+    font-weight: 400;
+}
+.matchup-tnt .matchup-vs {
+    color: #d97a2a;
+    text-shadow: 0 0 10px rgba(217,122,42,0.5);
+}
+.matchup-tnt-badge {
+    display: inline-block;
+    background: linear-gradient(135deg, #d97a2a, #b85a1a);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    margin-bottom: 10px;
+    box-shadow: 0 2px 6px rgba(217,122,42,0.35);
+}
+@media (max-width: 600px) {
+    .matchup-grid { grid-template-columns: 1fr; gap: 8px; }
+    .matchup-side.left, .matchup-side.right { text-align: center; }
+    .matchup-meta { gap: 14px; }
+}
+</style>
+"""
+
+
+def render_matchup_card(player_a: str, faction_a: Optional[str], player_b: Optional[str],
+                        faction_b: Optional[str], game_type: Optional[str],
+                        eta: Optional[str], points: Optional[str], is_tnt: bool = False) -> str:
+    """Build HTML for a single matchup card."""
+    is_bye = not player_b or player_b.strip().startswith("—") or player_b == "BYE"
+    classes = ["matchup-card"]
+    if is_bye:
+        classes.append("matchup-bye")
+    if is_tnt:
+        classes.append("matchup-tnt")
+
+    tnt_badge = '<div style="text-align:center;"><span class="matchup-tnt-badge">⚔️ Triumph &amp; Treachery</span></div>' if is_tnt else ""
+
+    fa = faction_a or "—"
+    fb = faction_b if (player_b and not is_bye) else ""
+    pb_display = player_b if (player_b and not is_bye) else "BYE / Standby"
+
+    meta_items = []
+    if game_type:
+        meta_items.append(f'<span class="matchup-meta-item"><span class="matchup-meta-label">Type</span> <span class="matchup-meta-value">{game_type}</span></span>')
+    if eta:
+        meta_items.append(f'<span class="matchup-meta-item"><span class="matchup-meta-label">ETA</span> <span class="matchup-meta-value">{eta}</span></span>')
+    if points:
+        meta_items.append(f'<span class="matchup-meta-item"><span class="matchup-meta-label">Points</span> <span class="matchup-meta-value">{points}</span></span>')
+    meta_html = f'<div class="matchup-meta">{"".join(meta_items)}</div>' if meta_items else ""
+
+    return f"""
+<div class="{' '.join(classes)}">
+    {tnt_badge}
+    <div class="matchup-grid">
+        <div class="matchup-side left">
+            <div class="matchup-name">{player_a}</div>
+            <div class="matchup-faction">{fa}</div>
+        </div>
+        <div class="matchup-vs">VS</div>
+        <div class="matchup-side right">
+            <div class="matchup-name">{pb_display}</div>
+            <div class="matchup-faction">{fb}</div>
+        </div>
+    </div>
+    {meta_html}
+</div>
+"""
+
+
 def _img_html_from_secret_or_file(primary_url: str, local_names, width: int, alt: str) -> str:
     """Return <img> HTML from a URL or first local file match; empty string if none."""
     src = None
@@ -1473,6 +1626,7 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
 # ===================== UI =====================
 
 apply_theme()
+st.markdown(_MATCHUP_CSS, unsafe_allow_html=True)
 render_header()
 
 # ---- Sidebar: Access & quick links ----
@@ -1540,6 +1694,30 @@ with T[idx["Call to Arms"]]:
             key=f"cta_week_{system}",
             help="The Old World uses Wednesday; The Horus Heresy and Kill Team use Friday as the week id."
         )
+
+    # --- Live signup snapshot for this week/system ---
+    try:
+        with Session(engine) as _s_cnt:
+            _wk_sus = _s_cnt.exec(
+                select(Signup).where((Signup.week == week_val) & (Signup.system == system))
+            ).all()
+        # Latest signup per unique normalised player name
+        _latest_by_name = {}
+        for _su in _wk_sus:
+            _k = _normalize_name(_su.player_name or "").lower()
+            _prev = _latest_by_name.get(_k)
+            if (not _prev) or (_su.created_at > _prev.created_at):
+                _latest_by_name[_k] = _su
+        _unique_signups = list(_latest_by_name.values())
+        _new_count = sum(1 for s in _unique_signups if (s.experience or "").lower() == "new")
+        _vet_count = sum(1 for s in _unique_signups if (s.experience or "").lower() == "veteran")
+
+        mc1, mc2, mc3 = st.columns(3)
+        mc1.metric("Signed Up", len(_unique_signups))
+        mc2.metric("Newcomers", _new_count)
+        mc3.metric("Veterans", _vet_count)
+    except Exception:
+        pass
 
     st.divider()
     # --- Player pick or create (first+last only) ---
@@ -1849,7 +2027,19 @@ with T[idx["Pairings"]]:
         st.info("No pairings yet.")
     else:
         tnt_names = set(TNT_SUGGESTIONS.get((week_lookup, sys_pick), []))
-        rows = []
+
+        # Summary metrics
+        total_games = len([p for p in prs if p.b_signup_id is not None])
+        total_players = len({p.a_signup_id for p in prs} | {p.b_signup_id for p in prs if p.b_signup_id})
+        bye_count = len([p for p in prs if p.b_signup_id is None])
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Players", total_players)
+        m2.metric("Matchups", total_games)
+        m3.metric("On Standby", bye_count)
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+        cards_html = []
         for p in prs:
             a = signup_by_id.get(p.a_signup_id)
             b = signup_by_id.get(p.b_signup_id) if p.b_signup_id else None
@@ -1858,20 +2048,23 @@ with T[idx["Pairings"]]:
             pts_show = _pts_show_for_pair(a, b)
 
             type_pub = _public_vibe_display(getattr(a, "vibe", None), getattr(b, "vibe", None))
+            is_tnt = False
             if sys_pick == "The Old World" and tnt_names:
                 if (a and a.player_name in tnt_names) or (b and b.player_name in tnt_names):
                     type_pub = "T&T"
+                    is_tnt = True
 
-            rows.append({
-                "A": a.player_name if a else f"A#{p.a_signup_id}",
-                "Faction A": p.a_faction or (a.faction if a else None),
-                "B": (b.player_name if b else "— BYE / standby —"),
-                "Faction B": (p.b_faction or (b.faction if b else None) if b else None),
-                "Type": type_pub,
-                "ETA": eta_show,
-                "Points": pts_show
-            })
-        st.dataframe(rows, width='stretch', hide_index=True)
+            cards_html.append(render_matchup_card(
+                player_a=a.player_name if a else f"A#{p.a_signup_id}",
+                faction_a=p.a_faction or (a.faction if a else None),
+                player_b=(b.player_name if b else None),
+                faction_b=(p.b_faction or (b.faction if b else None) if b else None),
+                game_type=type_pub,
+                eta=eta_show,
+                points=pts_show,
+                is_tnt=is_tnt,
+            ))
+        st.markdown("".join(cards_html), unsafe_allow_html=True)
 
 # --------------- Public: Old World League ---------------
 with T[idx["Old World League"]]:

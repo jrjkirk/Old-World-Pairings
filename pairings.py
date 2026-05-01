@@ -1126,15 +1126,18 @@ def render_header():
     .owl-logos img {{ width: calc((100% - 20px) / 3) !important; min-width: 70px; }}
 }}
 .owl-title {{
-    margin: 0;
+    margin: 0 !important;
+    padding: 0 !important;
     text-align: center;
     width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }}
 @media (max-width: 600px) {{
     .owl-title {{
         font-size: 1.6rem !important;
         letter-spacing: 1px;
-        padding-left: 8px;
     }}
 }}
 </style>

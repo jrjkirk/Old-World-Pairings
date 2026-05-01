@@ -1600,6 +1600,185 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
     return buf
 
 
+def render_league_rankings_image(rows: list[dict]) -> io.BytesIO | None:
+    """Render the Old World League rankings as a PNG, mirroring the public league table style."""
+    if not rows:
+        return None
+
+    import matplotlib.patches as mpatches
+    import matplotlib.image as mpimg
+
+    # ---- Style constants matching the public league table ----
+    bg_color = "#161620"
+    table_bg = "#1e1e28"
+    text_color = "#f4e9c8"
+    muted_color = "#d4c8a0"
+    faction_color = "#d4c8a0"
+    accent = "#c9a14a"
+    border_color = "#5a4a26"
+    header_bg = "#0c0c12"
+
+    # Podium row tints
+    podium_tints = {1: "#3a2e0f", 2: "#2c2c30", 3: "#3a2818"}
+    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+
+    def _icon_png_path(faction_name: str | None) -> str | None:
+        if not faction_name:
+            return None
+        slug = _faction_slug(faction_name)
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        for ext in ("png", "jpg"):
+            p = os.path.join(base_dir, "icons", f"{slug}.{ext}")
+            if os.path.exists(p):
+                return p
+        return None
+
+    # ---- Layout sizing ----
+    n = len(rows)
+    fig_width_in = 12.0
+    header_h_in = 0.55
+    row_h_in = 0.62
+    pad_top = 0.20
+    pad_bot = 0.20
+    fig_height_in = pad_top + pad_bot + header_h_in + n * row_h_in
+
+    fig = plt.figure(figsize=(fig_width_in, fig_height_in), dpi=200)
+    fig.patch.set_facecolor(bg_color)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_xlim(0, fig_width_in)
+    ax.set_ylim(0, fig_height_in)
+    ax.set_aspect("equal")
+    ax.axis("off")
+
+    # ---- Outer rounded container ----
+    container = mpatches.FancyBboxPatch(
+        (0.18, 0.10), fig_width_in - 0.36, fig_height_in - 0.20,
+        boxstyle="round,pad=0,rounding_size=0.10",
+        linewidth=1.2,
+        edgecolor=border_color,
+        facecolor=table_bg,
+        zorder=1,
+    )
+    ax.add_patch(container)
+
+    # ---- Column layout (in inches) ----
+    inner_left = 0.40
+    inner_right = fig_width_in - 0.40
+    col_rank_x   = inner_left + 0.30           # centred
+    col_elo_x    = inner_left + 0.95           # centred
+    col_name_x   = inner_left + 1.55           # left-aligned
+    col_faction_x = inner_left + 4.30          # icon, then name
+    col_wdl_x    = inner_right - 1.55          # centred
+    col_games_x  = inner_right - 0.40          # centred
+
+    # ---- Header row ----
+    header_y = fig_height_in - pad_top - header_h_in / 2
+    # Header background strip
+    header_bg_rect = mpatches.Rectangle(
+        (0.18, fig_height_in - pad_top - header_h_in),
+        fig_width_in - 0.36, header_h_in,
+        linewidth=0, facecolor=header_bg, zorder=2,
+    )
+    ax.add_patch(header_bg_rect)
+
+    # Bottom border under header
+    ax.plot(
+        [0.18, fig_width_in - 0.18],
+        [fig_height_in - pad_top - header_h_in, fig_height_in - pad_top - header_h_in],
+        color=accent, alpha=0.35, linewidth=1.0, zorder=3,
+    )
+
+    header_kwargs = dict(
+        color=accent, fontsize=10, fontweight="bold",
+        va="center", zorder=4,
+    )
+    ax.text(col_rank_x, header_y, "RANK", ha="center", **header_kwargs)
+    ax.text(col_elo_x, header_y, "ELO", ha="center", **header_kwargs)
+    ax.text(col_name_x, header_y, "NAME", ha="left", **header_kwargs)
+    ax.text(col_faction_x, header_y, "MOST PLAYED FACTION", ha="left", **header_kwargs)
+    ax.text(col_wdl_x, header_y, "W/D/L", ha="center", **header_kwargs)
+    ax.text(col_games_x, header_y, "GAMES", ha="center", **header_kwargs)
+
+    # ---- Data rows ----
+    for i, r in enumerate(rows):
+        row_top = fig_height_in - pad_top - header_h_in - i * row_h_in
+        row_bottom = row_top - row_h_in
+        cy = (row_top + row_bottom) / 2
+        rank = r.get("Rank")
+
+        # Subtle podium row tint (very faint — full width inside container)
+        if rank in podium_tints:
+            tint = mpatches.Rectangle(
+                (0.18, row_bottom), fig_width_in - 0.36, row_h_in,
+                linewidth=0, facecolor=podium_tints[rank], alpha=0.35, zorder=2,
+            )
+            ax.add_patch(tint)
+
+        # Dashed divider under each row (except last)
+        if i < n - 1:
+            ax.plot(
+                [0.40, fig_width_in - 0.40],
+                [row_bottom, row_bottom],
+                color=border_color, alpha=0.4, linewidth=0.6, zorder=3,
+                linestyle=(0, (3, 3)),
+            )
+
+        # Rank cell — medal emoji for top 3, plain number otherwise
+        if rank in medals:
+            # Use unicode medal as text. Matplotlib default font may not render emoji on every system,
+            # but Streamlit Cloud's matplotlib + DejaVu typically does. Fall back to "1st"/"2nd"/"3rd".
+            try:
+                ax.text(col_rank_x, cy, medals[rank], ha="center", va="center",
+                        fontsize=18, zorder=4)
+            except Exception:
+                ax.text(col_rank_x, cy, str(rank), ha="center", va="center",
+                        color=text_color, fontsize=14, fontweight="bold", zorder=4)
+        else:
+            ax.text(col_rank_x, cy, str(rank), ha="center", va="center",
+                    color=text_color, fontsize=14, fontweight="bold", zorder=4)
+
+        # ELO
+        ax.text(col_elo_x, cy, str(r.get("ELO", "")), ha="center", va="center",
+                color=text_color, fontsize=13, fontweight="bold", zorder=4)
+
+        # Name
+        ax.text(col_name_x, cy, str(r.get("Name", "")), ha="left", va="center",
+                color=text_color, fontsize=13, fontweight="bold", zorder=4)
+
+        # Faction icon + name
+        faction_name = str(r.get("Most Played Faction") or "—")
+        icon_path = _icon_png_path(faction_name) if faction_name and faction_name != "—" else None
+        icon_size = 0.42
+        if icon_path:
+            try:
+                img = mpimg.imread(icon_path)
+                ax.imshow(img,
+                          extent=[col_faction_x, col_faction_x + icon_size,
+                                  cy - icon_size / 2, cy + icon_size / 2],
+                          aspect="auto", zorder=5)
+            except Exception:
+                pass
+            faction_text_x = col_faction_x + icon_size + 0.18
+        else:
+            faction_text_x = col_faction_x
+        ax.text(faction_text_x, cy, faction_name, ha="left", va="center",
+                color=faction_color, fontsize=11, style="italic", zorder=4)
+
+        # W/D/L
+        ax.text(col_wdl_x, cy, str(r.get("W/D/L", "0/0/0")), ha="center", va="center",
+                color=muted_color, fontsize=12, fontweight="bold", zorder=4)
+
+        # Games played
+        ax.text(col_games_x, cy, str(r.get("Games Played", 0)), ha="center", va="center",
+                color=muted_color, fontsize=12, fontweight="bold", zorder=4)
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", facecolor=bg_color, bbox_inches="tight", pad_inches=0.05)
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
 
 def post_pairings_table_to_discord(rows: list[dict], week: str, system: str) -> None:
     """
@@ -3244,11 +3423,26 @@ if "League" in idx:
 
         ensure_league_results_table()
 
-        recalc_col, _ = st.columns([1, 3])
+        recalc_col, dl_col = st.columns([1, 1])
         with recalc_col:
             if st.button("Recalculate ELO Ratings"):
                 recalc_league_ratings()
                 st.success("League ELO ratings recalculated from full result history.")
+        with dl_col:
+            try:
+                rankings = league_rankings_rows()
+                if rankings:
+                    rankings_png = render_league_rankings_image(rankings)
+                    if rankings_png is not None:
+                        st.download_button(
+                            "Download League Rankings as PNG",
+                            data=rankings_png.getvalue(),
+                            file_name=f"old_world_league_rankings_{date.today().isoformat()}.png",
+                            mime="image/png",
+                            width='stretch',
+                        )
+            except Exception as e:
+                st.caption(f"Rankings PNG unavailable: {e}")
 
         league_rows = league_submitted_games_rows()
 

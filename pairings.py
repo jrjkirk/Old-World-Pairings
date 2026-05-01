@@ -2381,7 +2381,129 @@ with T[idx["Old World League"]]:
     st.markdown("### League Rankings")
     league_rows = league_rankings_rows()
     if league_rows:
-        st.dataframe(league_rows, width='stretch', hide_index=True)
+        # Inject league-specific CSS once
+        st.markdown("""
+<style>
+.league-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: linear-gradient(135deg, rgba(30,30,40,0.92) 0%, rgba(20,20,30,0.95) 100%);
+    border: 1px solid rgba(180,150,90,0.35);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+    color: #e8e4d8;
+    margin-bottom: 12px;
+}
+.league-table thead th {
+    background: rgba(0,0,0,0.35);
+    color: #c9a14a;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid rgba(201,161,74,0.35);
+}
+.league-table thead th.center { text-align: center; }
+.league-table tbody td {
+    padding: 10px 12px;
+    border-bottom: 1px dashed rgba(180,150,90,0.18);
+    font-size: 0.95rem;
+    vertical-align: middle;
+}
+.league-table tbody tr:last-child td { border-bottom: none; }
+.league-table tbody tr:hover { background: rgba(201,161,74,0.06); }
+.league-rank {
+    text-align: center;
+    width: 56px;
+    font-weight: 700;
+    color: #f4e9c8;
+    font-size: 1rem;
+}
+.league-rank-medal { font-size: 1.4rem; line-height: 1; }
+.league-elo {
+    text-align: center;
+    width: 78px;
+    font-weight: 700;
+    color: #f4e9c8;
+}
+.league-name { font-weight: 600; color: #f4e9c8; }
+.league-faction-cell {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.league-faction-icon {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+    flex: 0 0 auto;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));
+}
+.league-faction-name { color: #d4c8a0; font-style: italic; }
+.league-games {
+    text-align: center;
+    width: 90px;
+    color: #d4c8a0;
+}
+.league-row-1 td { background: linear-gradient(90deg, rgba(255,215,0,0.10), transparent 60%); }
+.league-row-2 td { background: linear-gradient(90deg, rgba(192,192,192,0.10), transparent 60%); }
+.league-row-3 td { background: linear-gradient(90deg, rgba(205,127,50,0.10), transparent 60%); }
+@media (max-width: 600px) {
+    .league-table thead th, .league-table tbody td { padding: 8px 8px; font-size: 0.85rem; }
+    .league-rank { width: 40px; }
+    .league-elo { width: 56px; }
+    .league-games { width: 56px; }
+    .league-faction-icon { width: 24px; height: 24px; }
+    .league-rank-medal { font-size: 1.2rem; }
+    .league-faction-name { display: none; }
+}
+</style>
+""", unsafe_allow_html=True)
+
+        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+        rows_html = []
+        for r in league_rows:
+            rank = r.get("Rank")
+            row_class = f"league-row-{rank}" if rank in (1, 2, 3) else ""
+            rank_cell = (
+                f'<span class="league-rank-medal">{medals[rank]}</span>'
+                if rank in medals else f'{rank}'
+            )
+
+            faction_name = r.get("Most Played Faction") or "—"
+            icon_uri = _faction_icon_data_uri(faction_name) if faction_name and faction_name != "—" else ""
+            icon_html = f'<img class="league-faction-icon" src="{icon_uri}" alt="{faction_name}"/>' if icon_uri else ''
+            faction_cell = (
+                f'<div class="league-faction-cell">{icon_html}'
+                f'<span class="league-faction-name">{faction_name}</span></div>'
+            )
+
+            rows_html.append(
+                f'<tr class="{row_class}">'
+                f'<td class="league-rank">{rank_cell}</td>'
+                f'<td class="league-elo">{r.get("ELO", "")}</td>'
+                f'<td class="league-name">{r.get("Name", "")}</td>'
+                f'<td>{faction_cell}</td>'
+                f'<td class="league-games">{r.get("Games Played", 0)}</td>'
+                f'</tr>'
+            )
+
+        table_html = (
+            '<table class="league-table">'
+            '<thead><tr>'
+            '<th class="center">Rank</th>'
+            '<th class="center">ELO</th>'
+            '<th>Name</th>'
+            '<th>Most Played Faction</th>'
+            '<th class="center">Games</th>'
+            '</tr></thead>'
+            f'<tbody>{"".join(rows_html)}</tbody>'
+            '</table>'
+        )
+        st.markdown(table_html, unsafe_allow_html=True)
     else:
         empty_league = pd.DataFrame(columns=["Rank", "ELO", "Name", "Most Played Faction", "Games Played"])
         st.dataframe(empty_league, width='stretch', hide_index=True)

@@ -1484,8 +1484,7 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
         if r.get("Points"):  meta_pairs.append(("PTS", str(r["Points"])))
 
         # Lay out meta from the right
-        meta_block_w = 0.0
-        meta_x_positions = []  # list of (label_x, value_x, label, value)
+        meta_x_positions = []  # list of (centre_x, label, value, block_w)
         meta_gap = 0.45
         # Compute approximate widths (matplotlib doesn't give us pre-render text width easily)
         # Approximate by character count * factor; this is good enough for layout
@@ -1497,25 +1496,29 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
             label_w = max(0.45, len(label) * char_w_label)
             block_w = max(value_w, label_w)
             x_left = running_x - block_w
-            meta_x_positions.append((x_left + block_w / 2, label, value))
+            meta_x_positions.append((x_left + block_w / 2, label, value, block_w))
             running_x = x_left - meta_gap
         meta_x_positions.reverse()
 
-        for x_center, label, value in meta_x_positions:
+        for x_center, label, value, _w in meta_x_positions:
             ax.text(x_center, cy + 0.22, label, color=meta_label_color, fontsize=8,
                     fontweight="bold", ha="center", va="center", zorder=3)
             ax.text(x_center, cy - 0.13, value, color=meta_value_color, fontsize=12,
                     fontweight="bold", ha="center", va="center", zorder=3)
 
-        # Determine where the meta block starts (its left-most x)
-        meta_left = meta_x_positions[0][0] - 0.40 if meta_x_positions else right_edge
+        # Determine the true left-most edge of the meta block (accounts for long values like "Competitive")
+        if meta_x_positions:
+            first_x_center, _, _, first_w = meta_x_positions[0]
+            meta_left = first_x_center - first_w / 2
+        else:
+            meta_left = right_edge
 
-        # Icon B and player B (positioned to the LEFT of the meta block)
+        # Icon B and player B (positioned to the LEFT of the meta block, with breathing room)
         b_name = r.get("B")
         is_bye = (not b_name) or str(b_name).strip().upper().startswith("BYE")
         b_text = "BYE / Standby" if is_bye else str(b_name)
 
-        icon_b_x_right = meta_left - 0.20
+        icon_b_x_right = meta_left - 0.50
         icon_b_x_left = icon_b_x_right - icon_size
         if not is_bye:
             icon_b_path = _icon_png_path(r.get("Faction B"))
@@ -1560,8 +1563,8 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
         ax.text(vs_x, cy, "VS", color=vs_color, fontsize=18, fontweight="bold",
                 ha="center", va="center", zorder=3)
 
-        # Subtle vertical separator before the meta block
-        sep_x = meta_left - 0.08
+        # Subtle vertical separator between the player B side and the meta block
+        sep_x = (icon_b_x_right + meta_left) / 2
         sep_top = card_top - 0.22
         sep_bot = card_bottom + 0.22
         ax.plot([sep_x, sep_x], [sep_bot, sep_top],

@@ -823,10 +823,84 @@ _MATCHUP_CSS = """
     border-color: rgba(201,161,74,0.75);
     box-shadow: 0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04), 0 0 0 1px rgba(201,161,74,0.3);
 }
+
+/* Tablet — slightly tighter layout */
+@media (max-width: 768px) {
+    .matchup-card {
+        padding: 14px 14px;
+        margin-bottom: 12px;
+    }
+    .matchup-grid { gap: 10px; }
+    .matchup-name { font-size: 1.05rem; }
+    .matchup-faction { font-size: 0.86rem; }
+    .matchup-vs { font-size: 1.3rem; padding: 0 4px; }
+}
+
+/* Mobile — stack vertically, larger touch-friendly text */
 @media (max-width: 600px) {
-    .matchup-grid { grid-template-columns: 1fr; gap: 8px; }
-    .matchup-side.left, .matchup-side.right { text-align: center; }
-    .matchup-meta { gap: 14px; }
+    .matchup-card {
+        padding: 16px 14px;
+        margin-bottom: 14px;
+        border-radius: 14px;
+    }
+    .matchup-grid {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+    .matchup-side.left,
+    .matchup-side.right {
+        text-align: center;
+    }
+    .matchup-name {
+        font-size: 1.18rem;
+        margin-bottom: 2px;
+    }
+    .matchup-faction {
+        font-size: 0.95rem;
+        margin-bottom: 2px;
+    }
+    /* Replace inline VS with a slim divider for cleaner stacking */
+    .matchup-vs {
+        font-size: 0.85rem;
+        font-weight: 700;
+        letter-spacing: 3px;
+        padding: 4px 0;
+        position: relative;
+        color: #c9a14a;
+        text-shadow: 0 0 6px rgba(201,161,74,0.35);
+    }
+    .matchup-vs::before,
+    .matchup-vs::after {
+        content: "";
+        display: inline-block;
+        width: 28%;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(201,161,74,0.55), transparent);
+        vertical-align: middle;
+        margin: 0 10px;
+    }
+    .matchup-meta {
+        gap: 10px 18px;
+        margin-top: 12px;
+        padding-top: 10px;
+        font-size: 0.85rem;
+        justify-content: space-around;
+    }
+    .matchup-meta-label {
+        display: block;
+        font-size: 0.65rem;
+        margin-bottom: 1px;
+    }
+    .matchup-meta-item {
+        flex-direction: column;
+        gap: 0;
+        align-items: center;
+        text-align: center;
+    }
+    .matchup-tnt-badge {
+        font-size: 0.65rem;
+        padding: 3px 8px;
+    }
 }
 </style>
 """

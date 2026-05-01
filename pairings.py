@@ -1131,7 +1131,11 @@ def render_header():
     width: 100%;
 }}
 @media (max-width: 600px) {{
-    .owl-title {{ font-size: 1.6rem !important; letter-spacing: 1px; }}
+    .owl-title {{
+        font-size: 1.6rem !important;
+        letter-spacing: 1px;
+        padding-left: 8px;
+    }}
 }}
 </style>
 <div class='owl-header' style='display:flex;flex-direction:column;align-items:center;gap:.35rem;margin:1.0rem 0 .6rem;width:100%;'>

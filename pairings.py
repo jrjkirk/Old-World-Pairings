@@ -1477,24 +1477,28 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
                 style="italic", ha="left", va="center", zorder=3)
 
         # Right side: meta block (Type / ETA / Points) — stacked, right-aligned
+        # Fixed column widths based on the longest possible value for each metric,
+        # so the meta block is identical across every card regardless of actual values.
         right_edge = card_right - inner_pad
         meta_pairs = []
         if r.get("Type"):    meta_pairs.append(("TYPE", str(r["Type"])))
         if r.get("ETA"):     meta_pairs.append(("ETA", str(r["ETA"])))
         if r.get("Points"):  meta_pairs.append(("PTS", str(r["Points"])))
 
-        # Lay out meta from the right
+        char_w_value = 0.10  # inches per char @ fontsize 12
+        # Worst-case widths for each meta column type
+        FIXED_COL_WIDTHS = {
+            "TYPE": len("Competitive") * char_w_value,  # longest type word
+            "ETA":  len("18:30") * char_w_value,
+            "PTS":  len("10000") * char_w_value,
+        }
+        meta_gap = 0.40
+
+        # Lay out from the right using fixed widths
         meta_x_positions = []  # list of (centre_x, label, value, block_w)
-        meta_gap = 0.45
-        # Compute approximate widths (matplotlib doesn't give us pre-render text width easily)
-        # Approximate by character count * factor; this is good enough for layout
-        char_w_label = 0.07  # inches per char @ fontsize 9
-        char_w_value = 0.10  # inches per char @ fontsize 13
         running_x = right_edge
         for label, value in reversed(meta_pairs):
-            value_w = max(0.55, len(value) * char_w_value)
-            label_w = max(0.45, len(label) * char_w_label)
-            block_w = max(value_w, label_w)
+            block_w = FIXED_COL_WIDTHS.get(label, len(value) * char_w_value)
             x_left = running_x - block_w
             meta_x_positions.append((x_left + block_w / 2, label, value, block_w))
             running_x = x_left - meta_gap
@@ -1506,7 +1510,7 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
             ax.text(x_center, cy - 0.13, value, color=meta_value_color, fontsize=12,
                     fontweight="bold", ha="center", va="center", zorder=3)
 
-        # Determine the true left-most edge of the meta block (accounts for long values like "Competitive")
+        # Left edge of the meta block — now identical across all cards
         if meta_x_positions:
             first_x_center, _, _, first_w = meta_x_positions[0]
             meta_left = first_x_center - first_w / 2
@@ -1543,10 +1547,11 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
             ax.text(name_b_right, cy - 0.18, faction_b, color=faction_color, fontsize=11,
                     style="italic", ha="right", va="center", zorder=3)
 
-        # VS sits at a stable x position across all cards: midway between the
-        # left content (row number + icon A) and the separator line.
+        # VS sits at a stable x position across all cards: weighted toward the
+        # left name (40%) and the separator (60%) so it reads as "name VS opponent"
+        # rather than drifting to the right.
         left_content_end = icon_a_x + icon_size + 0.18  # where name A starts
-        vs_x = (left_content_end + sep_x_anchor) / 2 if False else None  # placeholder; computed below
+        vs_x = None  # placeholder; computed below
 
         # We'll place the separator first since VS depends on it
         # Subtle vertical separator between the player B side and the meta block
@@ -1557,8 +1562,8 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
                 color=accent, alpha=0.35, linewidth=1.0, zorder=2,
                 solid_capstyle="round")
 
-        # VS centred between where name A starts and where the separator is
-        vs_x = (left_content_end + sep_x) / 2
+        # Weighted toward the left so VS feels close to player A's name
+        vs_x = left_content_end + (sep_x - left_content_end) * 0.40
         ax.text(vs_x, cy, "VS", color=vs_color, fontsize=18, fontweight="bold",
                 ha="center", va="center", zorder=3)
 

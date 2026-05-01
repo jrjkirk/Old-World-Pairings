@@ -1349,76 +1349,206 @@ def render_pairings_ascii_table(rows: list[dict], week: str, system: str) -> str
 
 
 def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesIO | None:
-    """Render pairings as a PNG image using matplotlib, for Discord posting.
+    """Render pairings as a stack of card-style PNGs, mirroring the public matchup card UI.
 
     Returns a BytesIO buffer positioned at start, or None if rows is empty.
     """
     if not rows:
         return None
 
-    # Build a simple DataFrame with a numeric index column
-    df = pd.DataFrame(rows)
-    cols = ["A", "Faction A", "B", "Faction B", "Type", "ETA", "Points"]
-    df = df[cols]
-    df.insert(0, "#", range(1, len(df) + 1))
+    import matplotlib.patches as mpatches
+    import matplotlib.image as mpimg
 
-    # --- sizing: large text, minimal padding ---
-    n_rows = len(df)
-    height = max(4.0, 0.7 * n_rows + 2)
+    # ---- Card style constants (mirroring the public CSS) ----
+    bg_color = "#161620"          # outer background
+    card_bg = "#1e1e28"           # gradient mid; flat fill is close enough
+    name_color = "#f4e9c8"
+    faction_color = "#b8a878"
+    meta_label_color = "#b8a878"
+    meta_value_color = "#f0e4bc"
+    vs_color = "#c9a14a"
+    bye_color = "#8a8270"
+    border_default = "#5a4a26"
 
-    bg_color = "#0E1117"
-    header_bg = "#1E2634"
-    text_color = "#FFFFFF"
-    edge_color = "#FFFFFF"
+    # Border accent colours by game type
+    accent_by_type = {
+        # The Old World
+        ("The Old World", "intro"):       "#6eb46e",
+        ("The Old World", "casual"):      "#c9a14a",
+        ("The Old World", "escalation"):  "#a06ec8",
+        ("The Old World", "competitive"): "#d25050",
+        # The Horus Heresy
+        ("The Horus Heresy", "intro"):    "#6eb46e",
+        ("The Horus Heresy", "standard"): "#c9a14a",
+        # Kill Team
+        ("Kill Team", "intro"):           "#6eb46e",
+        ("Kill Team", "standard"):        "#c9a14a",
+    }
 
-    fig, ax = plt.subplots(figsize=(16, height))
+    def _accent(game_type: str | None) -> str:
+        gt = (game_type or "").strip().lower()
+        return accent_by_type.get((system, gt), border_default)
+
+    def _icon_png_path(faction_name: str | None) -> str | None:
+        """Look for a PNG version of the faction icon (SVGs can't be rasterised without extra deps)."""
+        if not faction_name:
+            return None
+        slug = _faction_slug(faction_name)
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        for ext in ("png", "jpg"):
+            p = os.path.join(base_dir, "icons", f"{slug}.{ext}")
+            if os.path.exists(p):
+                return p
+        return None
+
+    # ---- Layout sizing ----
+    # Card grid is laid out in figure coords so we can place text/images precisely.
+    n = len(rows)
+    fig_width_in = 13.0
+    card_height_in = 1.45
+    gap_in = 0.18
+    top_pad_in = 0.18
+    bot_pad_in = 0.18
+    fig_height_in = top_pad_in + bot_pad_in + n * card_height_in + (n - 1) * gap_in
+
+    fig = plt.figure(figsize=(fig_width_in, fig_height_in), dpi=200)
     fig.patch.set_facecolor(bg_color)
-    ax.set_facecolor(bg_color)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_xlim(0, fig_width_in)
+    ax.set_ylim(0, fig_height_in)
+    ax.set_aspect("equal")
     ax.axis("off")
 
-    table = ax.table(
-        cellText=df.values.tolist(),
-        colLabels=df.columns.tolist(),
-        loc="center",
-        cellLoc="left",
-        bbox=[0, 0, 1, 1],
-    )
+    pad_x = 0.18  # horizontal padding inside fig
+    inner_pad = 0.30  # padding inside each card
 
-    table.auto_set_font_size(False)
-    # Bigger font, but cells not overly inflated
-    table.set_fontsize(20)
-    table.scale(1.2, 1.4)
+    for i, r in enumerate(rows):
+        # y of card top (rows render top-to-bottom)
+        card_top = fig_height_in - top_pad_in - i * (card_height_in + gap_in)
+        card_bottom = card_top - card_height_in
+        card_left = pad_x
+        card_right = fig_width_in - pad_x
+        card_w = card_right - card_left
 
-    try:
-        table.auto_set_column_width(col=list(range(len(df.columns))))
-    except Exception:
-        pass
+        # Card background (rounded rectangle)
+        accent = _accent(r.get("Type"))
+        rect = mpatches.FancyBboxPatch(
+            (card_left, card_bottom), card_w, card_height_in,
+            boxstyle="round,pad=0,rounding_size=0.10",
+            linewidth=2.0,
+            edgecolor=accent,
+            facecolor=card_bg,
+            zorder=1,
+        )
+        ax.add_patch(rect)
 
-    for (row, col), cell in table.get_celld().items():
-        # Reduce inner padding inside each cell so text hugs the borders more
-        try:
-            cell.PAD = 0.02
-        except Exception:
-            pass
-        cell.set_edgecolor(edge_color)
-        cell.set_text_props(color=text_color, ha="left", va="center")
-        if row == 0:
-            cell.set_facecolor(header_bg)
-            cell.set_text_props(weight="bold")
-        else:
-            cell.set_facecolor(bg_color)
+        # ----- Layout columns inside the card -----
+        # Left:  [#] [icon A] [name A / faction A]
+        # Middle: VS
+        # Right: [name B / faction B] [icon B] [meta block stacked right]
+        # We'll lay out using simple x-positions in inches.
 
-    plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        # Row index pill
+        idx_x = card_left + inner_pad + 0.08
+        cy = (card_top + card_bottom) / 2
+        ax.text(idx_x, cy, f"{i + 1}", color=name_color, fontsize=18, fontweight="bold",
+                ha="left", va="center", zorder=3)
+
+        # Icon A
+        icon_size = 0.78  # in inches
+        icon_a_x = idx_x + 0.45
+        icon_a_path = _icon_png_path(r.get("Faction A"))
+        if icon_a_path:
+            try:
+                img = mpimg.imread(icon_a_path)
+                ax.imshow(img,
+                          extent=[icon_a_x, icon_a_x + icon_size,
+                                  cy - icon_size / 2, cy + icon_size / 2],
+                          aspect="auto", zorder=4)
+            except Exception:
+                pass
+
+        name_a_x = icon_a_x + icon_size + 0.18
+        name_a = str(r.get("A") or "").strip()
+        faction_a = str(r.get("Faction A") or "").strip() or "—"
+        ax.text(name_a_x, cy + 0.18, name_a, color=name_color, fontsize=15,
+                fontweight="bold", ha="left", va="center", zorder=3)
+        ax.text(name_a_x, cy - 0.18, faction_a, color=faction_color, fontsize=11,
+                style="italic", ha="left", va="center", zorder=3)
+
+        # Right side: meta block (Type / ETA / Points) — stacked, right-aligned
+        right_edge = card_right - inner_pad
+        meta_pairs = []
+        if r.get("Type"):    meta_pairs.append(("TYPE", str(r["Type"])))
+        if r.get("ETA"):     meta_pairs.append(("ETA", str(r["ETA"])))
+        if r.get("Points"):  meta_pairs.append(("PTS", str(r["Points"])))
+
+        # Lay out meta from the right
+        meta_block_w = 0.0
+        meta_x_positions = []  # list of (label_x, value_x, label, value)
+        meta_gap = 0.45
+        # Compute approximate widths (matplotlib doesn't give us pre-render text width easily)
+        # Approximate by character count * factor; this is good enough for layout
+        char_w_label = 0.07  # inches per char @ fontsize 9
+        char_w_value = 0.10  # inches per char @ fontsize 13
+        running_x = right_edge
+        for label, value in reversed(meta_pairs):
+            value_w = max(0.55, len(value) * char_w_value)
+            label_w = max(0.45, len(label) * char_w_label)
+            block_w = max(value_w, label_w)
+            x_left = running_x - block_w
+            meta_x_positions.append((x_left + block_w / 2, label, value))
+            running_x = x_left - meta_gap
+        meta_x_positions.reverse()
+
+        for x_center, label, value in meta_x_positions:
+            ax.text(x_center, cy + 0.22, label, color=meta_label_color, fontsize=8,
+                    fontweight="bold", ha="center", va="center", zorder=3)
+            ax.text(x_center, cy - 0.13, value, color=meta_value_color, fontsize=12,
+                    fontweight="bold", ha="center", va="center", zorder=3)
+
+        # Determine where the meta block starts (its left-most x)
+        meta_left = meta_x_positions[0][0] - 0.40 if meta_x_positions else right_edge
+
+        # Icon B and player B (positioned to the LEFT of the meta block)
+        b_name = r.get("B")
+        is_bye = (not b_name) or str(b_name).strip().upper().startswith("BYE")
+        b_text = "BYE / Standby" if is_bye else str(b_name)
+
+        icon_b_x_right = meta_left - 0.20
+        icon_b_x_left = icon_b_x_right - icon_size
+        if not is_bye:
+            icon_b_path = _icon_png_path(r.get("Faction B"))
+            if icon_b_path:
+                try:
+                    img = mpimg.imread(icon_b_path)
+                    ax.imshow(img,
+                              extent=[icon_b_x_left, icon_b_x_right,
+                                      cy - icon_size / 2, cy + icon_size / 2],
+                              aspect="auto", zorder=4)
+                except Exception:
+                    pass
+
+        name_b_right = icon_b_x_left - 0.18
+        b_color = bye_color if is_bye else name_color
+        b_style = "italic" if is_bye else "normal"
+        b_weight = "normal" if is_bye else "bold"
+        ax.text(name_b_right, cy + 0.18, b_text, color=b_color, fontsize=15,
+                fontweight=b_weight, ha="right", va="center", zorder=3, style=b_style)
+        if not is_bye:
+            faction_b = str(r.get("Faction B") or "").strip() or "—"
+            ax.text(name_b_right, cy - 0.18, faction_b, color=faction_color, fontsize=11,
+                    style="italic", ha="right", va="center", zorder=3)
+
+        # VS divider in the middle
+        # Find rough centre between (name_a_x_end ~ name_a + icon area) and (name_b_right - text width)
+        # We position VS at the geometric centre of the card
+        vs_x = (card_left + card_right) / 2
+        ax.text(vs_x, cy, "VS", color=vs_color, fontsize=18, fontweight="bold",
+                ha="center", va="center", zorder=3)
 
     buf = io.BytesIO()
-    fig.savefig(
-        buf,
-        format="png",
-        dpi=150,
-        bbox_inches="tight",
-        pad_inches=0,
-        facecolor=fig.get_facecolor(),
-    )
+    fig.savefig(buf, format="png", facecolor=bg_color, bbox_inches="tight", pad_inches=0.05)
     plt.close(fig)
     buf.seek(0)
     return buf

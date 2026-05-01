@@ -743,30 +743,32 @@ _MATCHUP_CSS = """
     align-items: center;
 }
 .matchup-side {
-    text-align: center;
-}
-.matchup-side.left { text-align: right; }
-.matchup-side.right { text-align: left; }
-.matchup-name-row {
     display: flex;
     align-items: center;
-    gap: 10px;
-    margin-bottom: 4px;
+    gap: 14px;
 }
-.matchup-side.left .matchup-name-row { justify-content: flex-end; }
-.matchup-side.right .matchup-name-row { justify-content: flex-start; }
+.matchup-side.left {
+    justify-content: flex-end;
+    text-align: right;
+}
+.matchup-side.right {
+    justify-content: flex-start;
+    text-align: left;
+}
+.matchup-text { display: flex; flex-direction: column; }
 .matchup-icon {
-    width: 28px;
-    height: 28px;
+    width: 56px;
+    height: 56px;
     object-fit: contain;
     flex: 0 0 auto;
-    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));
+    filter: drop-shadow(0 1px 3px rgba(0,0,0,0.5));
 }
 .matchup-name {
     font-size: 1.15rem;
     font-weight: 600;
     color: #f4e9c8;
     letter-spacing: 0.2px;
+    margin-bottom: 4px;
 }
 .matchup-faction {
     font-size: 0.92rem;
@@ -912,17 +914,13 @@ _MATCHUP_CSS = """
     }
     .matchup-side.left,
     .matchup-side.right {
-        text-align: center;
-    }
-    /* On mobile, icon always sits to the left of the name on both sides */
-    .matchup-side.left .matchup-name-row,
-    .matchup-side.right .matchup-name-row {
         justify-content: center;
-        gap: 8px;
+        text-align: center;
+        gap: 12px;
     }
     .matchup-icon {
-        width: 24px;
-        height: 24px;
+        width: 44px;
+        height: 44px;
     }
     .matchup-name {
         font-size: 1.18rem;
@@ -1037,19 +1035,19 @@ def render_matchup_card(player_a: str, faction_a: Optional[str], player_b: Optio
         f'{tnt_badge}'
         f'<div class="matchup-grid">'
         f'<div class="matchup-side left">'
-        f'<div class="matchup-name-row">'
         f'{_faction_icon_html(faction_a, "left")}'
+        f'<div class="matchup-text">'
         f'<div class="matchup-name">{player_a}</div>'
-        f'</div>'
         f'<div class="matchup-faction">{fa}</div>'
+        f'</div>'
         f'</div>'
         f'<div class="matchup-vs">VS</div>'
         f'<div class="matchup-side right">'
-        f'<div class="matchup-name-row">'
+        f'<div class="matchup-text">'
         f'<div class="matchup-name">{pb_display}</div>'
-        f'{_faction_icon_html(faction_b, "right") if (player_b and not is_bye) else ""}'
-        f'</div>'
         f'<div class="matchup-faction">{fb}</div>'
+        f'</div>'
+        f'{_faction_icon_html(faction_b, "right") if (player_b and not is_bye) else ""}'
         f'</div>'
         f'</div>'
         f'{meta_html}'

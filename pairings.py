@@ -2668,84 +2668,19 @@ if "Pairings Admin" in idx:
 
             st.caption("Use the dropdowns in 'A' and 'B' to manually re-pair matches in this week/system.")
 
-            # ---- Download as PNG ----
-            def _build_pairings_png(df_src: pd.DataFrame, week: str, system: str) -> bytes:
-                """Render the pairings table to a PNG with row numbers starting at 1."""
-                # Strip out the player ID prefix from labels (e.g. "12 — Name" -> "Name")
-                def _strip_id(label):
-                    if label is None:
-                        return ""
-                    s = str(label)
-                    if "—" in s:
-                        return s.split("—", 1)[1].strip()
-                    return s
-
-                display_rows = []
-                for i, row in enumerate(df_src.itertuples(index=False), start=1):
-                    rd = row._asdict()
-                    display_rows.append({
-                        "#": i,
-                        "Player A": _strip_id(rd.get("A")),
-                        "Faction A": rd.get("A Faction") or "",
-                        "Player B": _strip_id(rd.get("B")) if rd.get("B") and rd.get("B") != "BYE" else "BYE",
-                        "Faction B": rd.get("B Faction") or "",
-                        "Type": rd.get("Type") or "",
-                        "ETA": rd.get("ETA") or "",
-                        "Points": rd.get("Points") if rd.get("Points") not in (None, "") else "",
-                    })
-                df_png = pd.DataFrame(display_rows)
-
-                n_rows = len(df_png) + 1  # +1 for header
-                fig_height = max(2.0, 0.55 * n_rows + 1.2)
-                fig, ax = plt.subplots(figsize=(13, fig_height), dpi=150)
-                ax.axis("off")
-
-                # Title
-                ax.set_title(
-                    f"{system} — Pairings for {week}",
-                    fontsize=14, fontweight="bold", pad=14, color="#3a2c0c"
-                )
-
-                tbl = ax.table(
-                    cellText=df_png.values.tolist(),
-                    colLabels=list(df_png.columns),
-                    loc="center",
-                    cellLoc="center",
-                )
-                tbl.auto_set_font_size(False)
-                tbl.set_fontsize(10)
-                tbl.scale(1.0, 1.5)
-
-                # Style header row
-                for col_idx in range(len(df_png.columns)):
-                    cell = tbl[(0, col_idx)]
-                    cell.set_facecolor("#3a2c0c")
-                    cell.set_text_props(color="#f4e9c8", fontweight="bold")
-
-                # Alternating row shading
-                for r in range(1, len(df_png) + 1):
-                    for c in range(len(df_png.columns)):
-                        cell = tbl[(r, c)]
-                        cell.set_facecolor("#fdf8e8" if r % 2 else "#f4ead0")
-                        cell.set_edgecolor("#c9a14a")
-
-                buf = io.BytesIO()
-                fig.savefig(buf, format="png", bbox_inches="tight", facecolor="white")
-                plt.close(fig)
-                buf.seek(0)
-                return buf.getvalue()
-
+            # ---- Download as PNG (uses the same image renderer as the Discord post) ----
             try:
-                png_bytes = _build_pairings_png(df_admin_pairs, week_lookup, sys_pick)
-                safe_week = str(week_lookup).replace("/", "-")
-                safe_sys = sys_pick.replace(" ", "_")
-                st.download_button(
-                    "Download Pairings as PNG",
-                    data=png_bytes,
-                    file_name=f"pairings_{safe_sys}_{safe_week}.png",
-                    mime="image/png",
-                    width='stretch',
-                )
+                png_buf = render_pairings_image(public_rows_for_discord, week_lookup, sys_pick)
+                if png_buf is not None:
+                    safe_week = str(week_lookup).replace("/", "-")
+                    safe_sys = sys_pick.replace(" ", "_")
+                    st.download_button(
+                        "Download Pairings as PNG",
+                        data=png_buf.getvalue(),
+                        file_name=f"pairings_{safe_sys}_{safe_week}.png",
+                        mime="image/png",
+                        width='stretch',
+                    )
             except Exception as e:
                 st.caption(f"PNG download unavailable: {e}")
 

@@ -1138,7 +1138,7 @@ def render_header():
     .owl-title {{
         font-size: 1.6rem !important;
         letter-spacing: 1px;
-        padding-left: 16px !important;
+        padding-left: 32px !important;
     }}
 }}
 </style>

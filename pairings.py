@@ -1233,10 +1233,11 @@ def render_header():
     justify-content: center;
 }}
 @media (max-width: 600px) {{
-    .owl-title {{
-        font-size: 1.6rem !important;
+    h1.owl-title, .owl-title {{
+        font-size: 2.6rem !important;
         letter-spacing: 1px;
         padding-left: 34px !important;
+        line-height: 1.1 !important;
     }}
 }}
 </style>

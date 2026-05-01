@@ -1620,7 +1620,12 @@ def render_league_rankings_image(rows: list[dict]) -> io.BytesIO | None:
 
     # Podium row tints
     podium_tints = {1: "#3a2e0f", 2: "#2c2c30", 3: "#3a2818"}
-    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+    # Medal colours for top 3 (gold / silver / bronze)
+    medal_colors = {
+        1: ("#d4af37", "#3a2e0f"),  # (fill, text)
+        2: ("#bfc1c2", "#2c2c30"),
+        3: ("#c98349", "#3a2818"),
+    }
 
     def _icon_png_path(faction_name: str | None) -> str | None:
         if not faction_name:
@@ -1723,16 +1728,17 @@ def render_league_rankings_image(rows: list[dict]) -> io.BytesIO | None:
                 linestyle=(0, (3, 3)),
             )
 
-        # Rank cell — medal emoji for top 3, plain number otherwise
-        if rank in medals:
-            # Use unicode medal as text. Matplotlib default font may not render emoji on every system,
-            # but Streamlit Cloud's matplotlib + DejaVu typically does. Fall back to "1st"/"2nd"/"3rd".
-            try:
-                ax.text(col_rank_x, cy, medals[rank], ha="center", va="center",
-                        fontsize=18, zorder=4)
-            except Exception:
-                ax.text(col_rank_x, cy, str(rank), ha="center", va="center",
-                        color=text_color, fontsize=14, fontweight="bold", zorder=4)
+        # Rank cell — a coloured circular medal for top 3, plain number otherwise
+        if rank in medal_colors:
+            fill, text_col = medal_colors[rank]
+            medal = mpatches.Circle(
+                (col_rank_x, cy), 0.18,
+                facecolor=fill, edgecolor="#1e1e28", linewidth=1.5, zorder=4,
+            )
+            ax.add_patch(medal)
+            ax.text(col_rank_x, cy, str(rank),
+                    ha="center", va="center",
+                    color=text_col, fontsize=12, fontweight="bold", zorder=5)
         else:
             ax.text(col_rank_x, cy, str(rank), ha="center", va="center",
                     color=text_color, fontsize=14, fontweight="bold", zorder=4)

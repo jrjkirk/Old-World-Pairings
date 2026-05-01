@@ -914,12 +914,22 @@ _MATCHUP_CSS = """
     }
     .matchup-side.left,
     .matchup-side.right {
+        position: relative;
         justify-content: center;
         text-align: center;
         gap: 12px;
     }
-    /* On the right side, the icon comes after text in the HTML — flip with flex order */
-    .matchup-side.right .matchup-icon { order: -1; }
+    /* Icon floats on the left; the text-block stays centred in the card */
+    .matchup-side .matchup-icon {
+        position: absolute;
+        left: 4px;
+        top: 50%;
+        transform: translateY(-50%);
+        order: 0;
+    }
+    .matchup-side .matchup-text {
+        margin: 0 auto;
+    }
     .matchup-icon {
         width: 44px;
         height: 44px;

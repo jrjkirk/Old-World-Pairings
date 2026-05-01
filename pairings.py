@@ -987,6 +987,11 @@ def render_matchup_card(player_a: str, faction_a: Optional[str], player_b: Optio
             classes.append("matchup-accent-intro")
         elif gt == "standard":
             classes.append("matchup-accent-standard")
+    elif system == "Kill Team":
+        if gt == "intro":
+            classes.append("matchup-accent-intro")
+        elif gt == "standard":
+            classes.append("matchup-accent-standard")
 
     tnt_badge = '<div style="text-align:center;"><span class="matchup-tnt-badge">⚔️ Triumph &amp; Treachery</span></div>' if is_tnt else ""
 
@@ -2065,11 +2070,7 @@ with T[idx["Call to Arms"]]:
             vibe_index = vibe_options.index(default_vibe) if default_vibe in vibe_options else 0
             vibe = st.selectbox("Type of Game", vibe_options, index=vibe_index, key=f"signup_vibe_{system}_{_key_suffix}")
         standby = st.checkbox("I Can Be on Standby", value=default_standby, key=f"signup_standby_{system}_{_key_suffix}")
-        # Triumph & Treachery (TOW only)
-        if not is_hh and not is_kt:
-            tnt = st.checkbox("I Can Play Triumph & Treachery (3-Way)", value=default_tnt, key=f"signup_tnt_{system}_{_key_suffix}")
-        else:
-            tnt = False
+        tnt = False  # Triumph & Treachery option removed; preserved as False for back-compat with DB schema
         # Scenario (TOW only)
         if not is_hh and not is_kt:
             scen_options = ["Open Battle", "Weekly Scenario"]
@@ -2499,8 +2500,6 @@ if "Pairings Admin" in idx:
         # ---- Section 1: Generate Weekly Pairings ----
         st.subheader("Generate Weekly Pairings")
         st.caption("Deletes existing **pending** pairings for that week+system before generating.")
-        allow_repeats = st.checkbox("Allow Rematches If Necessary", value=True)
-        allow_tnt = st.checkbox("Enable 3-Way (T&T) Grouping When Odd Numbers", value=True, help="Creates a BYE record for the odd person.")
 
         if st.button("Generate Pairings", type="primary"):
             with Session(engine) as s:
@@ -2508,7 +2507,7 @@ if "Pairings Admin" in idx:
                 for r in old:
                     s.delete(r)
                 s.commit()
-            created = generate_pairings_for_week(week_val, sys_pick, allow_repeats_when_needed=allow_repeats, allow_tnt=allow_tnt)
+            created = generate_pairings_for_week(week_val, sys_pick, allow_repeats_when_needed=True, allow_tnt=False)
             invalidate_app_caches()
             if created:
                 st.success(f"Created {len(created)} pairing(s).")
@@ -2635,11 +2634,19 @@ if "Pairings Admin" in idx:
                     ),
                     "A Faction": st.column_config.SelectboxColumn(
                         "A Faction",
-                        options=(HH_FACTIONS_WITH_BLANK if sys_pick == "The Horus Heresy" else PLACEHOLDER_FACTIONS_WITH_BLANK),
+                        options=(
+                            HH_FACTIONS_WITH_BLANK if sys_pick == "The Horus Heresy"
+                            else KT_FACTIONS_WITH_BLANK if sys_pick == "Kill Team"
+                            else PLACEHOLDER_FACTIONS_WITH_BLANK
+                        ),
                     ),
                     "A Type": st.column_config.SelectboxColumn(
                         "A Type",
-                        options=(["Standard", "Intro"] if sys_pick == "The Horus Heresy" else ["Casual", "Competitive", "Intro", "Either"]),
+                        options=(
+                            ["Standard", "Intro"] if sys_pick == "The Horus Heresy"
+                            else ["Standard"] if sys_pick == "Kill Team"
+                            else ["Casual", "Competitive", "Intro", "Either"]
+                        ),
                     ),
                     "B": st.column_config.SelectboxColumn(
                         "B",
@@ -2648,15 +2655,27 @@ if "Pairings Admin" in idx:
                     ),
                     "B Faction": st.column_config.SelectboxColumn(
                         "B Faction",
-                        options=(HH_FACTIONS_WITH_BLANK if sys_pick == "The Horus Heresy" else PLACEHOLDER_FACTIONS_WITH_BLANK),
+                        options=(
+                            HH_FACTIONS_WITH_BLANK if sys_pick == "The Horus Heresy"
+                            else KT_FACTIONS_WITH_BLANK if sys_pick == "Kill Team"
+                            else PLACEHOLDER_FACTIONS_WITH_BLANK
+                        ),
                     ),
                     "B Type": st.column_config.SelectboxColumn(
                         "B Type",
-                        options=(["Standard", "Intro"] if sys_pick == "The Horus Heresy" else ["Casual", "Competitive", "Intro", "Either"]),
+                        options=(
+                            ["Standard", "Intro"] if sys_pick == "The Horus Heresy"
+                            else ["Standard"] if sys_pick == "Kill Team"
+                            else ["Casual", "Competitive", "Intro", "Either"]
+                        ),
                     ),
                     "Type": st.column_config.SelectboxColumn(
                         "Type",
-                        options=(["Standard", "Intro"] if sys_pick == "The Horus Heresy" else ["Casual", "Competitive", "Intro", "Either"]),
+                        options=(
+                            ["Standard", "Intro"] if sys_pick == "The Horus Heresy"
+                            else ["Standard"] if sys_pick == "Kill Team"
+                            else ["Casual", "Competitive", "Intro", "Either"]
+                        ),
                     ),
                     "ETA": st.column_config.SelectboxColumn(
                         "ETA",

@@ -1540,12 +1540,33 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
             ax.text(name_b_right, cy - 0.18, faction_b, color=faction_color, fontsize=11,
                     style="italic", ha="right", va="center", zorder=3)
 
-        # VS divider in the middle
-        # Find rough centre between (name_a_x_end ~ name_a + icon area) and (name_b_right - text width)
-        # We position VS at the geometric centre of the card
-        vs_x = (card_left + card_right) / 2
+        # Estimated rightmost extent of player A's text block (name + faction)
+        # Approximate: name length and faction length × char width @ their respective sizes.
+        char_w_name = 0.10
+        char_w_faction = 0.07
+        name_a_w = max(len(name_a), len(faction_a)) * max(char_w_name, char_w_faction)
+        # Take whichever text is wider as the right-edge of the A block
+        name_a_w = max(len(name_a) * char_w_name, len(faction_a) * char_w_faction)
+        name_a_right_edge = name_a_x + name_a_w
+
+        # name_b's left-most extent (b_text and faction_b are right-aligned at name_b_right)
+        b_text_for_w = b_text if not is_bye else "BYE / Standby"
+        faction_b_for_w = "" if is_bye else (str(r.get("Faction B") or "").strip() or "—")
+        name_b_w = max(len(b_text_for_w) * char_w_name, len(faction_b_for_w) * char_w_faction)
+        name_b_left_edge = name_b_right - name_b_w
+
+        # VS sits halfway between the right edge of A's text and left edge of B's text
+        vs_x = (name_a_right_edge + name_b_left_edge) / 2
         ax.text(vs_x, cy, "VS", color=vs_color, fontsize=18, fontweight="bold",
                 ha="center", va="center", zorder=3)
+
+        # Subtle vertical separator before the meta block
+        sep_x = meta_left - 0.08
+        sep_top = card_top - 0.22
+        sep_bot = card_bottom + 0.22
+        ax.plot([sep_x, sep_x], [sep_bot, sep_top],
+                color=accent, alpha=0.35, linewidth=1.0, zorder=2,
+                solid_capstyle="round")
 
     buf = io.BytesIO()
     fig.savefig(buf, format="png", facecolor=bg_color, bbox_inches="tight", pad_inches=0.05)

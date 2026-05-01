@@ -748,13 +748,16 @@ _MATCHUP_CSS = """
     gap: 14px;
 }
 .matchup-side.left {
-    justify-content: flex-end;
+    justify-content: space-between;
     text-align: right;
 }
 .matchup-side.right {
-    justify-content: flex-start;
+    justify-content: space-between;
     text-align: left;
 }
+/* Push the text block toward the centre (VS), keep icon pinned to outer edge */
+.matchup-side.left .matchup-text { margin-left: auto; }
+.matchup-side.right .matchup-text { margin-right: auto; }
 .matchup-text { display: flex; flex-direction: column; }
 .matchup-icon {
     width: 56px;

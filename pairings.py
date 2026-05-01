@@ -838,23 +838,23 @@ def render_matchup_card(player_a: str, faction_a: Optional[str], player_b: Optio
         meta_items.append(f'<span class="matchup-meta-item"><span class="matchup-meta-label">Points</span> <span class="matchup-meta-value">{points}</span></span>')
     meta_html = f'<div class="matchup-meta">{"".join(meta_items)}</div>' if meta_items else ""
 
-    return f"""
-<div class="{' '.join(classes)}">
-    {tnt_badge}
-    <div class="matchup-grid">
-        <div class="matchup-side left">
-            <div class="matchup-name">{player_a}</div>
-            <div class="matchup-faction">{fa}</div>
-        </div>
-        <div class="matchup-vs">VS</div>
-        <div class="matchup-side right">
-            <div class="matchup-name">{pb_display}</div>
-            <div class="matchup-faction">{fb}</div>
-        </div>
-    </div>
-    {meta_html}
-</div>
-"""
+    return (
+        f'<div class="{" ".join(classes)}">'
+        f'{tnt_badge}'
+        f'<div class="matchup-grid">'
+        f'<div class="matchup-side left">'
+        f'<div class="matchup-name">{player_a}</div>'
+        f'<div class="matchup-faction">{fa}</div>'
+        f'</div>'
+        f'<div class="matchup-vs">VS</div>'
+        f'<div class="matchup-side right">'
+        f'<div class="matchup-name">{pb_display}</div>'
+        f'<div class="matchup-faction">{fb}</div>'
+        f'</div>'
+        f'</div>'
+        f'{meta_html}'
+        f'</div>'
+    )
 
 
 def _img_html_from_secret_or_file(primary_url: str, local_names, width: int, alt: str) -> str:
@@ -2039,7 +2039,6 @@ with T[idx["Pairings"]]:
         m3.metric("On Standby", bye_count)
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
-        cards_html = []
         for p in prs:
             a = signup_by_id.get(p.a_signup_id)
             b = signup_by_id.get(p.b_signup_id) if p.b_signup_id else None
@@ -2054,7 +2053,7 @@ with T[idx["Pairings"]]:
                     type_pub = "T&T"
                     is_tnt = True
 
-            cards_html.append(render_matchup_card(
+            st.markdown(render_matchup_card(
                 player_a=a.player_name if a else f"A#{p.a_signup_id}",
                 faction_a=p.a_faction or (a.faction if a else None),
                 player_b=(b.player_name if b else None),
@@ -2063,8 +2062,7 @@ with T[idx["Pairings"]]:
                 eta=eta_show,
                 points=pts_show,
                 is_tnt=is_tnt,
-            ))
-        st.markdown("".join(cards_html), unsafe_allow_html=True)
+            ), unsafe_allow_html=True)
 
 # --------------- Public: Old World League ---------------
 with T[idx["Old World League"]]:

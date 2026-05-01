@@ -803,6 +803,26 @@ _MATCHUP_CSS = """
     margin-bottom: 10px;
     box-shadow: 0 2px 6px rgba(217,122,42,0.35);
 }
+.matchup-accent-intro {
+    border-color: rgba(110,180,110,0.7);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04), 0 0 0 1px rgba(110,180,110,0.25);
+}
+.matchup-accent-casual {
+    border-color: rgba(201,161,74,0.75);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04), 0 0 0 1px rgba(201,161,74,0.3);
+}
+.matchup-accent-escalation {
+    border-color: rgba(160,110,200,0.7);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04), 0 0 0 1px rgba(160,110,200,0.28);
+}
+.matchup-accent-competitive {
+    border-color: rgba(210,80,80,0.75);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04), 0 0 0 1px rgba(210,80,80,0.3);
+}
+.matchup-accent-standard {
+    border-color: rgba(201,161,74,0.75);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04), 0 0 0 1px rgba(201,161,74,0.3);
+}
 @media (max-width: 600px) {
     .matchup-grid { grid-template-columns: 1fr; gap: 8px; }
     .matchup-side.left, .matchup-side.right { text-align: center; }
@@ -814,7 +834,8 @@ _MATCHUP_CSS = """
 
 def render_matchup_card(player_a: str, faction_a: Optional[str], player_b: Optional[str],
                         faction_b: Optional[str], game_type: Optional[str],
-                        eta: Optional[str], points: Optional[str], is_tnt: bool = False) -> str:
+                        eta: Optional[str], points: Optional[str], is_tnt: bool = False,
+                        system: Optional[str] = None) -> str:
     """Build HTML for a single matchup card."""
     is_bye = not player_b or player_b.strip().startswith("—") or player_b == "BYE"
     classes = ["matchup-card"]
@@ -822,6 +843,23 @@ def render_matchup_card(player_a: str, faction_a: Optional[str], player_b: Optio
         classes.append("matchup-bye")
     if is_tnt:
         classes.append("matchup-tnt")
+
+    # Border accent colour by game type — TOW and Horus Heresy only
+    gt = (game_type or "").strip().lower()
+    if system == "The Old World":
+        if gt == "intro":
+            classes.append("matchup-accent-intro")
+        elif gt == "casual":
+            classes.append("matchup-accent-casual")
+        elif gt == "escalation":
+            classes.append("matchup-accent-escalation")
+        elif gt == "competitive":
+            classes.append("matchup-accent-competitive")
+    elif system == "The Horus Heresy":
+        if gt == "intro":
+            classes.append("matchup-accent-intro")
+        elif gt == "standard":
+            classes.append("matchup-accent-standard")
 
     tnt_badge = '<div style="text-align:center;"><span class="matchup-tnt-badge">⚔️ Triumph &amp; Treachery</span></div>' if is_tnt else ""
 
@@ -2062,6 +2100,7 @@ with T[idx["Pairings"]]:
                 eta=eta_show,
                 points=pts_show,
                 is_tnt=is_tnt,
+                system=sys_pick,
             ), unsafe_allow_html=True)
 
 # --------------- Public: Old World League ---------------

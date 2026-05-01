@@ -1097,15 +1097,46 @@ def render_header():
                 ext = lp.lower().split(".")[-1]
                 mime = "image/png" if ext == "png" else "image/jpeg"
                 logo_html = f"<img src='data:{mime};base64,{encoded}' alt='Logo' width='{LOGO_WIDTH}'/>"
-        header_html = logo_html
+        header_html = f"<div class='owl-logos'>{logo_html}</div>"
     else:
         imgs = "".join(img for img in [tow_img, hh_img, kt_img] if img)
-        header_html = f"<div style='display:flex;gap:24px;align-items:center;justify-content:center;flex-wrap:wrap'>{imgs}</div>"
+        header_html = f"<div class='owl-logos'>{imgs}</div>"
 
     st.markdown(f"""
-<div class='owl-header' style='display:flex;flex-direction:column;align-items:center;gap:.35rem;margin:1.0rem 0 .6rem;'>
+<style>
+.owl-logos {{
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    width: 100%;
+}}
+.owl-logos img {{
+    max-width: 100%;
+    height: auto;
+    flex: 0 0 auto;
+}}
+@media (max-width: 768px) {{
+    .owl-logos {{ gap: 14px; }}
+    .owl-logos img {{ width: calc((100% - 28px) / 3) !important; min-width: 90px; }}
+}}
+@media (max-width: 480px) {{
+    .owl-logos {{ gap: 10px; }}
+    .owl-logos img {{ width: calc((100% - 20px) / 3) !important; min-width: 70px; }}
+}}
+.owl-title {{
+    margin: 0;
+    text-align: center;
+    width: 100%;
+}}
+@media (max-width: 600px) {{
+    .owl-title {{ font-size: 1.6rem !important; letter-spacing: 1px; }}
+}}
+</style>
+<div class='owl-header' style='display:flex;flex-direction:column;align-items:center;gap:.35rem;margin:1.0rem 0 .6rem;width:100%;'>
   {header_html}
-  <h1 style='margin:0;text-align:center'>CALL TO ARMS</h1>
+  <h1 class='owl-title'>CALL TO ARMS</h1>
 </div>
 <div class='owl-spacer'></div>
 """, unsafe_allow_html=True)

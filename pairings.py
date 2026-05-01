@@ -1543,26 +1543,12 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
             ax.text(name_b_right, cy - 0.18, faction_b, color=faction_color, fontsize=11,
                     style="italic", ha="right", va="center", zorder=3)
 
-        # Estimated rightmost extent of player A's text block (name + faction)
-        # Approximate: name length and faction length × char width @ their respective sizes.
-        char_w_name = 0.10
-        char_w_faction = 0.07
-        name_a_w = max(len(name_a), len(faction_a)) * max(char_w_name, char_w_faction)
-        # Take whichever text is wider as the right-edge of the A block
-        name_a_w = max(len(name_a) * char_w_name, len(faction_a) * char_w_faction)
-        name_a_right_edge = name_a_x + name_a_w
+        # VS sits at a stable x position across all cards: midway between the
+        # left content (row number + icon A) and the separator line.
+        left_content_end = icon_a_x + icon_size + 0.18  # where name A starts
+        vs_x = (left_content_end + sep_x_anchor) / 2 if False else None  # placeholder; computed below
 
-        # name_b's left-most extent (b_text and faction_b are right-aligned at name_b_right)
-        b_text_for_w = b_text if not is_bye else "BYE / Standby"
-        faction_b_for_w = "" if is_bye else (str(r.get("Faction B") or "").strip() or "—")
-        name_b_w = max(len(b_text_for_w) * char_w_name, len(faction_b_for_w) * char_w_faction)
-        name_b_left_edge = name_b_right - name_b_w
-
-        # VS sits halfway between the right edge of A's text and left edge of B's text
-        vs_x = (name_a_right_edge + name_b_left_edge) / 2
-        ax.text(vs_x, cy, "VS", color=vs_color, fontsize=18, fontweight="bold",
-                ha="center", va="center", zorder=3)
-
+        # We'll place the separator first since VS depends on it
         # Subtle vertical separator between the player B side and the meta block
         sep_x = (icon_b_x_right + meta_left) / 2
         sep_top = card_top - 0.22
@@ -1570,6 +1556,11 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
         ax.plot([sep_x, sep_x], [sep_bot, sep_top],
                 color=accent, alpha=0.35, linewidth=1.0, zorder=2,
                 solid_capstyle="round")
+
+        # VS centred between where name A starts and where the separator is
+        vs_x = (left_content_end + sep_x) / 2
+        ax.text(vs_x, cy, "VS", color=vs_color, fontsize=18, fontweight="bold",
+                ha="center", va="center", zorder=3)
 
     buf = io.BytesIO()
     fig.savefig(buf, format="png", facecolor=bg_color, bbox_inches="tight", pad_inches=0.05)

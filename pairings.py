@@ -918,6 +918,8 @@ _MATCHUP_CSS = """
         text-align: center;
         gap: 12px;
     }
+    /* On the right side, the icon comes after text in the HTML — flip with flex order */
+    .matchup-side.right .matchup-icon { order: -1; }
     .matchup-icon {
         width: 44px;
         height: 44px;

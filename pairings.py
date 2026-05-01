@@ -691,6 +691,10 @@ def active_players_snapshot() -> List[dict]:
 
 _DEF_CSS = """
 <style>
+html, body, .stApp,
+.stApp *, [class*="st-"], [data-testid] {
+    font-family: 'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', sans-serif !important;
+}
 html, body, .stApp { background: #141414 !important; color: #f0e8d8 !important; }
 .block-container { border: 1px solid rgba(200,163,95,.35); border-radius: 14px; padding: 2.2rem 1.0rem 1.25rem; }
 .stTabs [aria-selected="true"] { border-bottom: 3px solid #c8a35f !important; }
@@ -716,7 +720,6 @@ _MATCHUP_CSS = """
     margin-bottom: 14px;
     box-shadow: 0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04);
     color: #e8e4d8;
-    font-family: 'Inter', system-ui, sans-serif;
     transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 .matchup-card:hover {
@@ -750,7 +753,6 @@ _MATCHUP_CSS = """
     font-size: 1.5rem;
     font-weight: 800;
     color: #c9a14a;
-    font-family: 'Cinzel', 'Georgia', serif;
     text-shadow: 0 0 8px rgba(201,161,74,0.4);
     letter-spacing: 1px;
     padding: 0 6px;
@@ -852,7 +854,6 @@ _MATCHUP_CSS = """
     font-size: 1.6rem;
     font-weight: 700;
     color: #f4e9c8;
-    font-family: 'Cinzel', 'Georgia', serif;
     line-height: 1.1;
 }
 @media (max-width: 600px) {

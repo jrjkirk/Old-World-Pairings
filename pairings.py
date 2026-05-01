@@ -824,6 +824,44 @@ _MATCHUP_CSS = """
     box-shadow: 0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04), 0 0 0 1px rgba(201,161,74,0.3);
 }
 
+/* Stat strip — stays horizontal on mobile */
+.stat-strip {
+    display: flex;
+    gap: 10px;
+    margin: 4px 0 12px 0;
+    width: 100%;
+}
+.stat-tile {
+    flex: 1 1 0;
+    min-width: 0;
+    background: linear-gradient(135deg, rgba(30,30,40,0.92) 0%, rgba(20,20,30,0.95) 100%);
+    border: 1px solid rgba(180,150,90,0.35);
+    border-radius: 10px;
+    padding: 10px 8px;
+    text-align: center;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+}
+.stat-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: #b8a878;
+    margin-bottom: 4px;
+}
+.stat-value {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: #f4e9c8;
+    font-family: 'Cinzel', 'Georgia', serif;
+    line-height: 1.1;
+}
+@media (max-width: 600px) {
+    .stat-strip { gap: 6px; }
+    .stat-tile { padding: 8px 4px; border-radius: 8px; }
+    .stat-label { font-size: 0.6rem; letter-spacing: 0.4px; }
+    .stat-value { font-size: 1.25rem; }
+}
+
 /* Tablet — slightly tighter layout */
 @media (max-width: 768px) {
     .matchup-card {
@@ -868,12 +906,16 @@ _MATCHUP_CSS = """
         position: relative;
         color: #c9a14a;
         text-shadow: 0 0 6px rgba(201,161,74,0.35);
+        text-align: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
     .matchup-vs::before,
     .matchup-vs::after {
         content: "";
         display: inline-block;
-        width: 28%;
+        flex: 1;
         height: 1px;
         background: linear-gradient(90deg, transparent, rgba(201,161,74,0.55), transparent);
         vertical-align: middle;
@@ -967,6 +1009,17 @@ def render_matchup_card(player_a: str, faction_a: Optional[str], player_b: Optio
         f'{meta_html}'
         f'</div>'
     )
+
+
+def render_stat_strip(stats: list) -> str:
+    """Build a horizontal stat strip that stays side-by-side on mobile.
+    `stats` is a list of (label, value) tuples."""
+    tiles = "".join(
+        f'<div class="stat-tile"><div class="stat-label">{label}</div>'
+        f'<div class="stat-value">{value}</div></div>'
+        for label, value in stats
+    )
+    return f'<div class="stat-strip">{tiles}</div>'
 
 
 def _img_html_from_secret_or_file(primary_url: str, local_names, width: int, alt: str) -> str:
@@ -1824,10 +1877,12 @@ with T[idx["Call to Arms"]]:
         _new_count = sum(1 for s in _unique_signups if (s.experience or "").lower() == "new")
         _vet_count = sum(1 for s in _unique_signups if (s.experience or "").lower() == "veteran")
 
-        mc1, mc2, mc3 = st.columns(3)
-        mc1.metric("Signed Up", len(_unique_signups))
-        mc2.metric("Newcomers", _new_count)
-        mc3.metric("Veterans", _vet_count)
+        mc_html = render_stat_strip([
+            ("Signed Up", len(_unique_signups)),
+            ("Newcomers", _new_count),
+            ("Veterans", _vet_count),
+        ])
+        st.markdown(mc_html, unsafe_allow_html=True)
     except Exception:
         pass
 
@@ -2145,11 +2200,11 @@ with T[idx["Pairings"]]:
         total_players = len({p.a_signup_id for p in prs} | {p.b_signup_id for p in prs if p.b_signup_id})
         bye_count = len([p for p in prs if p.b_signup_id is None])
 
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Players", total_players)
-        m2.metric("Matchups", total_games)
-        m3.metric("On Standby", bye_count)
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        st.markdown(render_stat_strip([
+            ("Players", total_players),
+            ("Matchups", total_games),
+            ("On Standby", bye_count),
+        ]), unsafe_allow_html=True)
 
         for p in prs:
             a = signup_by_id.get(p.a_signup_id)

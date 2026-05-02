@@ -1342,6 +1342,15 @@ def _signup_short_label_for_system(system: str) -> str:
     return system
 
 
+def _signup_count_phrase_for_system(system: str) -> str:
+    """Phrase used to label the running signup count in Discord messages."""
+    if system == "The Horus Heresy":
+        return "HH session signups"
+    if system == "The Old World":
+        return "TOW signups this week"
+    return f"{_signup_short_label_for_system(system)} signups this week"
+
+
 def post_discord_signup(player_name: str, faction: Optional[str], vibe: Optional[str], system: str, week_str: str):
     """Post a minimal signup notification to Discord via webhook (TOW and HH supported)."""
     webhook_url = _signup_webhook_for_system(system)
@@ -1351,9 +1360,9 @@ def post_discord_signup(player_name: str, faction: Optional[str], vibe: Optional
     faction_label = faction or "Unknown faction"
     vibe_label = vibe or "Unknown vibe"
     count = _signup_count_for_system(week_str, system)
-    short = _signup_short_label_for_system(system)
+    count_phrase = _signup_count_phrase_for_system(system)
 
-    content = f"📝 **{player_name}** signed up — ⚔️ {faction_label} • 🎭 {vibe_label}\n📊 {short} signups this week: {count}"
+    content = f"📝 **{player_name}** signed up — ⚔️ {faction_label} • 🎭 {vibe_label}\n📊 {count_phrase}: {count}"
 
     try:
         requests.post(
@@ -1375,9 +1384,9 @@ def post_discord_drop(player_name: str, faction: Optional[str], vibe: Optional[s
     count = _signup_count_for_system(week_str, system)
     faction_label = faction or "Unknown faction"
     vibe_label = vibe or "Unknown vibe"
-    short = _signup_short_label_for_system(system)
+    count_phrase = _signup_count_phrase_for_system(system)
 
-    content = f"❌ **{player_name}** dropped — ⚔️ {faction_label} • 🎭 {vibe_label}\n📊 {short} signups this week: {count}"
+    content = f"❌ **{player_name}** dropped — ⚔️ {faction_label} • 🎭 {vibe_label}\n📊 {count_phrase}: {count}"
     try:
         requests.post(
             webhook_url,
@@ -2128,7 +2137,14 @@ def post_hh_call_to_arms() -> None:
 
 
 def run_scheduled_hh_call_to_arms() -> None:
-    """Entry point for GitHub Actions to post the weekly HH Call to Arms."""
+    """Entry point for GitHub Actions to post the fortnightly HH Call to Arms.
+
+    Skips silently if today is not within the run-up week of an HH session Friday,
+    so the workflow can safely fire every Tuesday and only actually post on
+    session weeks.
+    """
+    if not is_hh_session_week(date.today()):
+        return
     post_hh_call_to_arms()
 
 def _parse_eta(sval) -> Optional[time]:
@@ -2180,17 +2196,60 @@ def week_id_wed(d: date) -> str:
 
 
 def week_id_fri(d: date) -> str:
-    """Friday identifier (DD/MM/YYYY) for Horus Heresy and Kill Team."""
+    """Friday identifier (DD/MM/YYYY) — next Friday on or after the given date."""
     # 0 = Mon, 1 = Tue, ..., 4 = Fri
     days_ahead = (4 - d.weekday()) % 7
     friday = d + timedelta(days=days_ahead)
     return uk_date_str(friday)
 
-def week_id_for_system(system: str, d: date | None = None) -> str:
-    """Per-system game-day week id: TOW uses Wednesday, HH and Kill Team use Friday."""
+
+# ---- Horus Heresy fortnightly schedule ----
+# Anchor date: the first HH session of the new fortnightly cadence.
+# All HH session Fridays are this anchor + N*14 days.
+HH_SESSION_ANCHOR = date(2026, 5, 8)
+
+
+def hh_next_session_friday(d: date | None = None) -> date:
+    """Return the next HH session Friday on or after the given date.
+
+    HH runs fortnightly anchored on HH_SESSION_ANCHOR. If `d` is itself a session
+    Friday, returns that Friday; otherwise returns the next session Friday after d.
+    """
     if d is None:
         d = date.today()
-    if system in ("The Horus Heresy", "Kill Team"):
+
+    # Find the most recent Friday on or before the anchor (the anchor IS a Friday).
+    # Then jump forward in 14-day strides until we reach or pass `d`.
+    if d <= HH_SESSION_ANCHOR:
+        return HH_SESSION_ANCHOR
+    delta_days = (d - HH_SESSION_ANCHOR).days
+    fortnights_passed = delta_days // 14
+    candidate = HH_SESSION_ANCHOR + timedelta(days=fortnights_passed * 14)
+    # If `d` is past this candidate, the next session is one fortnight further on
+    if d > candidate:
+        candidate += timedelta(days=14)
+    return candidate
+
+
+def is_hh_session_week(d: date | None = None) -> bool:
+    """True if `d` falls within the run-up to (or on) an HH session Friday this week.
+    Used by the HH Call to Arms scheduler to skip posts on off-weeks."""
+    if d is None:
+        d = date.today()
+    next_session = hh_next_session_friday(d)
+    # The 'session week' starts the Saturday after the previous session and ends on the session Friday itself.
+    days_until = (next_session - d).days
+    return 0 <= days_until <= 6
+
+
+def week_id_for_system(system: str, d: date | None = None) -> str:
+    """Per-system game-day week id.
+    TOW = upcoming Wednesday; HH = next fortnightly Friday session; Kill Team = upcoming Friday."""
+    if d is None:
+        d = date.today()
+    if system == "The Horus Heresy":
+        return uk_date_str(hh_next_session_friday(d))
+    if system == "Kill Team":
         return week_id_fri(d)
     # Default to TOW behaviour
     return week_id_wed(d)
@@ -2356,8 +2415,14 @@ def generate_pairings_for_week(week: str, system: str, allow_repeats_when_needed
 
         # Two lookback windows: recent rematches are hard-avoided, older ones
         # are soft-penalised so the algorithm prefers fresh matchups when possible.
-        seen_pairs_recent = previous_pairs_recent(system, week, max_weeks=3)
-        seen_pairs_extended = previous_pairs_recent(system, week, max_weeks=6)
+        # HH runs fortnightly so its lookbacks are doubled to cover the same
+        # number of actual sessions as TOW/KT.
+        if system == "The Horus Heresy":
+            recent_window, extended_window = 6, 12
+        else:
+            recent_window, extended_window = 3, 6
+        seen_pairs_recent = previous_pairs_recent(system, week, max_weeks=recent_window)
+        seen_pairs_extended = previous_pairs_recent(system, week, max_weeks=extended_window)
         used: Set[str] = set()
         out: List[Pairing] = intro_pairs
 
@@ -2587,7 +2652,7 @@ with T[idx["Call to Arms"]]:
             "Week (DD/MM/YYYY)",
             value=week_default,
             key=f"cta_week_{system}",
-            help="The Old World uses Wednesday; The Horus Heresy and Kill Team use Friday as the week id."
+            help="The Old World uses Wednesday; The Horus Heresy uses fortnightly Friday sessions; Kill Team uses Friday."
         )
 
     # --- Live signup snapshot for this week/system ---
@@ -2886,7 +2951,7 @@ with T[idx["Pairings"]]:
         "Week (DD/MM/YYYY)",
         value=week_id_for_system(sys_pick, date.today()),
         key=f"pub_week_{sys_pick}",
-        help="The Old World uses the Wednesday date; The Horus Heresy and Kill Team use the Friday date."
+        help="The Old World uses the Wednesday date; The Horus Heresy the upcoming fortnightly Friday session; Kill Team the Friday date."
     )
 
     # Fetch PublishState, Pairings, and Signups in a single session
@@ -3230,7 +3295,7 @@ if "Signups" in idx:
             "Week (DD/MM/YYYY)",
             value=week_id_for_system(sys_pick, date.today()),
             key=f"adm_week_su_{sys_pick}",
-            help="The Old World = Wednesday date; The Horus Heresy and Kill Team = Friday date."
+            help="The Old World = Wednesday date; The Horus Heresy = fortnightly Friday session date; Kill Team = Friday date."
         )
         with Session(engine) as s:
             sus = s.exec(select(Signup).where((Signup.week == week_lookup) & (Signup.system == sys_pick)).order_by(Signup.created_at)).all()
@@ -3317,7 +3382,7 @@ if "Pairings Admin" in idx:
                 "Week (DD/MM/YYYY)",
                 value=week_id_for_system(sys_pick, date.today()),
                 key=f"adm_week_pairs_{sys_pick}",
-                help="The Old World = Wednesday date; The Horus Heresy and Kill Team = Friday date."
+                help="The Old World = Wednesday date; The Horus Heresy = fortnightly Friday session date; Kill Team = Friday date."
             )
         week_val = week_lookup  # alias used by generate section below
 

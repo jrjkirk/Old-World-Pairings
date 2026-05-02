@@ -3644,11 +3644,13 @@ if "Players" in idx:
                         '.profile-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));'
                         'gap:10px;}'
                         '.profile-stat{background:rgba(0,0,0,0.25);border:1px solid rgba(180,150,90,0.25);'
-                        'border-radius:10px;padding:10px;text-align:center;}'
+                        'border-radius:10px;padding:10px;text-align:center;'
+                        'display:flex;flex-direction:column;justify-content:space-between;'
+                        'min-height:90px;}'
                         '.profile-stat-label{font-size:0.7rem;color:#b8a878;text-transform:uppercase;'
-                        'letter-spacing:0.5px;}'
+                        'letter-spacing:0.5px;line-height:1.2;}'
                         '.profile-stat-value{font-size:1.4rem;font-weight:700;color:#f4e9c8;line-height:1.1;'
-                        'margin-top:4px;}'
+                        'margin-top:auto;}'
                         '.profile-game-row{display:flex;align-items:center;gap:10px;padding:8px 4px;'
                         'border-bottom:1px dashed rgba(180,150,90,0.18);font-size:0.92rem;}'
                         '.profile-game-row:last-child{border-bottom:none;}'
@@ -3689,8 +3691,9 @@ if "Players" in idx:
                             '<div class="profile-section-title" style="margin-top:0;margin-bottom:6px;">Achievements</div>',
                             unsafe_allow_html=True,
                         )
-                        # 2 columns wide on every device — wraps naturally, fits mobile screens
-                        per_row = 2
+                        # Render badges in a wrapping row using narrow Streamlit columns.
+                        # Popover buttons work natively on both desktop (click) and mobile (tap).
+                        per_row = 4
                         for chunk_start in range(0, len(achievements), per_row):
                             chunk = achievements[chunk_start:chunk_start + per_row]
                             cols = st.columns(per_row)

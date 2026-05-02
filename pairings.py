@@ -2903,7 +2903,7 @@ with T[idx["Call to Arms"]]:
 
         st.markdown("### Need to Drop Out?")
         if not _is_new and selected_player_label and selected_player_label in _label_to_id:
-            if st.button("Drop My Signup for This Week"):
+            if st.button("Drop My Signup"):
                 with Session(engine) as s:
                     # Block drops after pairings have been published for this week/system
                     gate = s.exec(
@@ -3781,15 +3781,55 @@ if "League" in idx:
 if "View History" in idx:
     with T[idx["View History"]]:
         st.subheader("View History")
+
         sys_pick = st.selectbox("System", SYSTEMS, index=0, key="adm_hist_sys")
-        week_filter = st.text_input("Week Contains (Optional)", value="", key="adm_hist_week_filter")
-        limit = st.number_input("Show Last N Pairings", min_value=10, max_value=1000, value=200, step=10, help="Caps how many rows to display")
+
+        # Build the list of available weeks for this system, newest first
+        with Session(engine) as s:
+            existing_weeks = s.exec(
+                select(Pairing.week).where(Pairing.system == sys_pick).distinct()
+            ).all()
+
+        def _wk_sort_key(w: str):
+            try:
+                return parse_week_id(w)
+            except Exception:
+                return date.min
+
+        weeks_sorted = sorted({w for w in existing_weeks if w}, key=_wk_sort_key, reverse=True)
+        week_options = ["(All weeks)"] + weeks_sorted
+
+        # Build the list of all players who have appeared in pairings for this system
+        with Session(engine) as s:
+            sys_pairings = s.exec(
+                select(Pairing).where(Pairing.system == sys_pick)
+            ).all()
+            sys_signup_ids = {p.a_signup_id for p in sys_pairings}
+            sys_signup_ids.update({p.b_signup_id for p in sys_pairings if p.b_signup_id})
+            sys_signups = s.exec(
+                select(Signup).where(Signup.id.in_(sys_signup_ids))
+            ).all() if sys_signup_ids else []
+        all_player_names = sorted({su.player_name for su in sys_signups if su.player_name})
+
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            week_pick = st.selectbox("Week", week_options, index=0, key="adm_hist_week_pick")
+        with c2:
+            player_filter = st.multiselect(
+                "Filter by Player(s)",
+                options=all_player_names,
+                default=[],
+                key="adm_hist_player_filter",
+                help="Show only pairings where one of these players appears (on either side).",
+            )
+
+        limit = st.number_input("Show Last N Pairings", min_value=10, max_value=1000, value=200, step=10,
+                                help="Caps how many rows to display")
 
         with Session(engine) as s:
             q = select(Pairing).where(Pairing.system == sys_pick)
-            if week_filter.strip():
-                # ilike for case-insensitive substring match on week id
-                q = q.where(Pairing.week.ilike(f"%{week_filter.strip()}%"))
+            if week_pick and week_pick != "(All weeks)":
+                q = q.where(Pairing.week == week_pick)
             prs = s.exec(q.order_by(Pairing.week.desc(), Pairing.id.desc())).all()
 
         if not prs:
@@ -3810,6 +3850,13 @@ if "View History" in idx:
                     a = signup_by_id.get(p.a_signup_id)
                     b = signup_by_id.get(p.b_signup_id) if p.b_signup_id else None
 
+                    # Apply player filter (match either side)
+                    if player_filter:
+                        a_name = a.player_name if a else None
+                        b_name = b.player_name if b else None
+                        if not ((a_name and a_name in player_filter) or (b_name and b_name in player_filter)):
+                            continue
+
                     eta_show = _eta_show_for_pair(a, b)
                     pts_show = _pts_show_for_pair(a, b)
 
@@ -3823,14 +3870,19 @@ if "View History" in idx:
                         "B": (b.player_name if b else ("BYE" if p.b_signup_id is None else f"B#{p.b_signup_id}")),
                         "B Faction": ((p.b_faction or (b.faction if b else None)) if b else None),
                         "B Type": ((b.vibe if b else None) if b else None),
-                            "ETA": eta_show,
+                        "ETA": eta_show,
                         "Points": pts_show,
                     })
 
-            df = pd.DataFrame(rows)
-            st.dataframe(df, width='stretch', hide_index=True)
-            csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button("Download History as CSV", data=csv, file_name="pairings_history.csv", mime="text/csv", width='stretch')
+            if not rows:
+                st.info("No pairings match your filters.")
+            else:
+                df = pd.DataFrame(rows)
+                st.caption(f"Showing {len(df)} pairing(s).")
+                st.dataframe(df, width='stretch', hide_index=True)
+                csv = df.to_csv(index=False).encode("utf-8")
+                st.download_button("Download History as CSV", data=csv, file_name="pairings_history.csv",
+                                   mime="text/csv", width='stretch')
 
 
 

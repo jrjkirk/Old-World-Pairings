@@ -55,6 +55,7 @@ ELEMENT_LOGO_URL = _get_secret("ELEMENT_LOGO_URL", "")
 DISCORD_URL = _get_secret("DISCORD_URL", "")
 DISCORD_LOGO_URL = _get_secret("DISCORD_LOGO_URL", "")
 DISCORD_SIGNUP_WEBHOOK_URL = _get_secret("DISCORD_SIGNUP_WEBHOOK_URL", "")
+DISCORD_HH_SIGNUP_WEBHOOK_URL = _get_secret("DISCORD_HH_SIGNUP_WEBHOOK_URL", "")
 DISCORD_CALL_TO_ARMS_WEBHOOK_URL = _get_secret("DISCORD_CALL_TO_ARMS_WEBHOOK_URL", "")
 # Legacy single pairings webhook — kept for back-compat; new code prefers the per-system ones below
 DISCORD_PAIRINGS_WEBHOOK_URL = _get_secret("DISCORD_PAIRINGS_WEBHOOK_URL", "")
@@ -1301,8 +1302,8 @@ def render_header():
 """, unsafe_allow_html=True)
 
 
-def _get_tow_signup_count(week_str: str) -> int:
-    """Return number of TOW signups for the given week id."""
+def _signup_count_for_system(week_str: str, system: str) -> int:
+    """Return the number of signups for the given week id and system."""
     try:
         wk = (week_str or "").strip()
     except Exception:
@@ -1312,28 +1313,51 @@ def _get_tow_signup_count(week_str: str) -> int:
     with Session(engine) as s:
         rows = s.exec(
             select(Signup).where(
-                (Signup.week == wk) & (Signup.system == "The Old World")
+                (Signup.week == wk) & (Signup.system == system)
             )
         ).all()
         return len(rows)
 
 
+def _get_tow_signup_count(week_str: str) -> int:
+    """Return number of TOW signups for the given week id (back-compat helper)."""
+    return _signup_count_for_system(week_str, "The Old World")
+
+
+def _signup_webhook_for_system(system: str) -> str:
+    """Return the signup notification webhook URL for the given system, or empty if none."""
+    if system == "The Old World":
+        return DISCORD_SIGNUP_WEBHOOK_URL
+    if system == "The Horus Heresy":
+        return DISCORD_HH_SIGNUP_WEBHOOK_URL
+    return ""
+
+
+def _signup_short_label_for_system(system: str) -> str:
+    """Short label used inside Discord signup messages."""
+    if system == "The Old World":
+        return "TOW"
+    if system == "The Horus Heresy":
+        return "HH"
+    return system
+
+
 def post_discord_signup(player_name: str, faction: Optional[str], vibe: Optional[str], system: str, week_str: str):
-    """Post a minimal signup notification to Discord via webhook (TOW only)."""
-    if system != "The Old World":
-        return
-    if not DISCORD_SIGNUP_WEBHOOK_URL:
+    """Post a minimal signup notification to Discord via webhook (TOW and HH supported)."""
+    webhook_url = _signup_webhook_for_system(system)
+    if not webhook_url:
         return
 
     faction_label = faction or "Unknown faction"
     vibe_label = vibe or "Unknown vibe"
-    count = _get_tow_signup_count(week_str)
+    count = _signup_count_for_system(week_str, system)
+    short = _signup_short_label_for_system(system)
 
-    content = f"📝 **{player_name}** signed up — ⚔️ {faction_label} • 🎭 {vibe_label}\n📊 TOW signups this week: {count}"
+    content = f"📝 **{player_name}** signed up — ⚔️ {faction_label} • 🎭 {vibe_label}\n📊 {short} signups this week: {count}"
 
     try:
         requests.post(
-            DISCORD_SIGNUP_WEBHOOK_URL,
+            webhook_url,
             json={"content": content},
             timeout=5,
         )
@@ -1342,20 +1366,21 @@ def post_discord_signup(player_name: str, faction: Optional[str], vibe: Optional
         pass
 
 
-def post_discord_drop(player_name: str, faction: Optional[str], vibe: Optional[str], week_str: str):
-    """Post a minimal drop notification to Discord via webhook (TOW only)."""
-    if not DISCORD_SIGNUP_WEBHOOK_URL:
+def post_discord_drop(player_name: str, faction: Optional[str], vibe: Optional[str], week_str: str, system: str = "The Old World"):
+    """Post a minimal drop notification to Discord via webhook (TOW and HH supported)."""
+    webhook_url = _signup_webhook_for_system(system)
+    if not webhook_url:
         return
-    # We don't know system here for sure, but drops are only enabled for TOW signups usage-wise.
-    count = _get_tow_signup_count(week_str)
 
+    count = _signup_count_for_system(week_str, system)
     faction_label = faction or "Unknown faction"
     vibe_label = vibe or "Unknown vibe"
+    short = _signup_short_label_for_system(system)
 
-    content = f"❌ **{player_name}** dropped — ⚔️ {faction_label} • 🎭 {vibe_label}\n📊 TOW signups this week: {count}"
+    content = f"❌ **{player_name}** dropped — ⚔️ {faction_label} • 🎭 {vibe_label}\n📊 {short} signups this week: {count}"
     try:
         requests.post(
-            DISCORD_SIGNUP_WEBHOOK_URL,
+            webhook_url,
             json={"content": content},
             timeout=5,
         )
@@ -2844,9 +2869,9 @@ with T[idx["Call to Arms"]]:
                         s.commit()
                         invalidate_app_caches()
                         st.success("You've been removed from this week's signup.")
-                        # Discord notification for TOW drops
-                        if system == "The Old World":
-                            post_discord_drop(ref.player_name, ref.faction, ref.vibe, week_val.strip())
+                        # Discord notification for TOW and HH drops
+                        if system in ("The Old World", "The Horus Heresy"):
+                            post_discord_drop(ref.player_name, ref.faction, ref.vibe, week_val.strip(), system)
         else:
             st.caption("Select your player above to drop an existing signup.")
 
@@ -3623,19 +3648,38 @@ if "Pairings Admin" in idx:
                            "Set the appropriate DISCORD_*_PAIRINGS_WEBHOOK_URL secret to enable.")
 
 
-            with st.form("delete_pairs_form", clear_on_submit=True):
-                ids_str = st.text_input("Delete Pairing IDs (Comma-Separated)")
-                do_delete = st.form_submit_button("Delete Selected")
-            if do_delete and ids_str.strip():
+            # Build human-friendly labels for each pairing so the multiselect is readable
+            pairing_label_map: Dict[str, int] = {}
+            for r in rows:
+                a_label = r.get("A") or "?"
+                b_label = r.get("B") or "BYE"
+                # Strip the leading ID from labels like "12 — Name"
+                def _strip_id(s):
+                    s = str(s)
+                    return s.split("—", 1)[1].strip() if "—" in s else s
+                label = f"#{r['ID']} — {_strip_id(a_label)} vs {_strip_id(b_label)}"
+                pairing_label_map[label] = r["ID"]
+
+            select_all = st.checkbox("Select All Pairings", value=False, key="del_pairs_all")
+            default_selected = list(pairing_label_map.keys()) if select_all else []
+            del_pair_labels = st.multiselect(
+                "Delete Pairings",
+                options=list(pairing_label_map.keys()),
+                default=default_selected,
+                key="del_pairs_multi",
+            )
+            if st.button("Delete Selected", key="del_pairs_btn") and del_pair_labels:
                 try:
-                    ids = [int(x.strip()) for x in ids_str.split(",") if x.strip().isdigit()]
+                    ids = [pairing_label_map[lbl] for lbl in del_pair_labels if lbl in pairing_label_map]
                     with Session(engine) as s:
                         for pid in ids:
                             obj = s.get(Pairing, pid)
                             if obj:
                                 s.delete(obj)
                         s.commit()
+                    invalidate_app_caches()
                     st.success(f"Deleted {len(ids)} pairing(s).")
+                    st.rerun()
                 except Exception as e:
                     st.error(f"Error: {e}")
 # --------------- Admin: League ---------------

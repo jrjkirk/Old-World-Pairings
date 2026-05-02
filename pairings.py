@@ -3689,20 +3689,8 @@ if "Players" in idx:
                             '<div class="profile-section-title" style="margin-top:0;margin-bottom:6px;">Achievements</div>',
                             unsafe_allow_html=True,
                         )
-                        # On desktop we render 4 across; CSS below collapses to 2 columns on mobile
-                        st.markdown(
-                            '<style>'
-                            '@media (max-width:600px){'
-                            '#achievements-grid div[data-testid="stHorizontalBlock"]{flex-wrap:wrap !important;}'
-                            '#achievements-grid div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]{'
-                            'flex:0 0 50% !important;width:50% !important;min-width:0 !important;'
-                            'margin-bottom:6px;}'
-                            '}'
-                            '</style>'
-                            '<div id="achievements-grid"></div>',
-                            unsafe_allow_html=True,
-                        )
-                        per_row = 4
+                        # 2 columns wide on every device — wraps naturally, fits mobile screens
+                        per_row = 2
                         for chunk_start in range(0, len(achievements), per_row):
                             chunk = achievements[chunk_start:chunk_start + per_row]
                             cols = st.columns(per_row)

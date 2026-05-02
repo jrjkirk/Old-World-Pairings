@@ -940,6 +940,24 @@ def _compute_player_achievements(player_id: int) -> List[str]:
     return achievements
 
 
+# Tooltip text shown on hover for each achievement
+ACHIEVEMENT_DESCRIPTIONS: Dict[str, str] = {
+    "First Blood": "Won at least one Old World League game.",
+    "Veteran": "Played 10 or more Old World League games.",
+    "Champion": "Played 25 or more Old World League games.",
+    "Hat-Trick": "Won 3 or more Old World League games in a row.",
+    "Unstoppable": "Won 5 or more Old World League games in a row.",
+    "Loyalist": "Played 5 or more league games with the same faction.",
+    "Diversifier": "Used 5 or more different factions across all systems.",
+    "Generalist": "Used 10 or more different factions across all systems.",
+    "Centurion": "Reached 50 total signups across all systems.",
+    "Legend": "Reached 100 total signups across all systems.",
+    "Newcomer": "Has signed up to 4 or fewer sessions so far.",
+    "Multi-System": "Has signed up for at least 2 different game systems.",
+    "Triple Threat": "Has signed up for all 3 game systems (TOW, HH, KT).",
+}
+
+
 @st.cache_data(ttl=600, show_spinner=False)
 def league_submitted_games_rows() -> List[dict]:
     ensure_league_results_table()
@@ -3605,7 +3623,7 @@ if "Players" in idx:
                     achievements_html = ""
                     if achievements:
                         ach_chips = "".join(
-                            f'<span class="profile-achievement-chip">🏅 {a}</span>'
+                            f'<span class="profile-achievement-chip" title="{ACHIEVEMENT_DESCRIPTIONS.get(a, "")}">🏅 {a}</span>'
                             for a in achievements
                         )
                         achievements_html = f'<div class="profile-titles" style="margin-top:8px;">{ach_chips}</div>'
@@ -3622,7 +3640,7 @@ if "Players" in idx:
                         'border-radius:12px;font-size:0.82rem;}'
                         '.profile-achievement-chip{display:inline-block;background:rgba(110,180,110,0.12);'
                         'border:1px solid rgba(110,180,110,0.35);color:#d4e8c8;padding:3px 10px;'
-                        'border-radius:12px;font-size:0.78rem;}'
+                        'border-radius:12px;font-size:0.78rem;cursor:help;}'
                         '.profile-section-title{font-size:1.05rem;font-weight:600;color:#c9a14a;'
                         'text-transform:uppercase;letter-spacing:0.6px;margin-top:8px;margin-bottom:8px;}'
                         '.profile-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));'
@@ -3641,10 +3659,12 @@ if "Players" in idx:
                         '.profile-game-meta{color:#d4c8a0;margin-left:auto;font-size:0.85rem;}'
                         '.profile-faction-row{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:0.92rem;}'
                         '.profile-faction-row img{width:24px;height:24px;object-fit:contain;flex:0 0 auto;}'
-                        '.profile-faction-name{color:#f4e9c8;flex:1;}'
-                        '.profile-faction-bar{height:6px;background:rgba(0,0,0,0.3);border-radius:3px;overflow:hidden;'
-                        'flex:1;max-width:240px;}'
-                        '.profile-faction-bar-fill{height:100%;background:linear-gradient(90deg,#c9a14a,#d97a2a);}'
+                        '.profile-faction-name{color:#f4e9c8;flex:1;min-width:120px;}'
+                        '.profile-faction-bar{display:inline-block;height:8px;background:rgba(0,0,0,0.4);'
+                        'border-radius:4px;overflow:hidden;flex:1;max-width:240px;min-width:80px;'
+                        'border:1px solid rgba(180,150,90,0.18);}'
+                        '.profile-faction-bar-fill{display:block;height:100%;'
+                        'background:linear-gradient(90deg,#c9a14a,#d97a2a);}'
                         '.profile-faction-count{color:#d4c8a0;min-width:34px;text-align:right;'
                         'font-variant-numeric:tabular-nums;}'
                         '</style>',
@@ -3693,9 +3713,9 @@ if "Players" in idx:
                                     f'<div class="profile-faction-row">'
                                     f'{icon_html}'
                                     f'<span class="profile-faction-name">{fac_name}</span>'
-                                    f'<span class="profile-faction-bar">'
-                                    f'<span class="profile-faction-bar-fill" style="width:{pct}%;"></span>'
-                                    f'</span>'
+                                    f'<div class="profile-faction-bar">'
+                                    f'<div class="profile-faction-bar-fill" style="width:{pct}%;"></div>'
+                                    f'</div>'
                                     f'<span class="profile-faction-count">{count}</span>'
                                     f'</div>'
                                 )
@@ -3732,7 +3752,7 @@ if "Players" in idx:
 
                         # ELO history graph (Plotly with hover tooltips)
                         elo_hist = league_stats.get("elo_history", [])
-                        if len(elo_hist) >= 2:
+                        if len(elo_hist) >= 1:
                             try:
                                 import plotly.graph_objects as go
                                 game_nums = list(range(1, len(elo_hist) + 1))

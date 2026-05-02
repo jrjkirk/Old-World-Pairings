@@ -3648,40 +3648,20 @@ if "Pairings Admin" in idx:
                            "Set the appropriate DISCORD_*_PAIRINGS_WEBHOOK_URL secret to enable.")
 
 
-            # Build human-friendly labels for each pairing so the multiselect is readable
-            pairing_label_map: Dict[str, int] = {}
-            for r in rows:
-                a_label = r.get("A") or "?"
-                b_label = r.get("B") or "BYE"
-                # Strip the leading ID from labels like "12 — Name"
-                def _strip_id(s):
-                    s = str(s)
-                    return s.split("—", 1)[1].strip() if "—" in s else s
-                label = f"#{r['ID']} — {_strip_id(a_label)} vs {_strip_id(b_label)}"
-                pairing_label_map[label] = r["ID"]
-
-            select_all = st.checkbox("Select All Pairings", value=False, key="del_pairs_all")
-            default_selected = list(pairing_label_map.keys()) if select_all else []
-            del_pair_labels = st.multiselect(
-                "Delete Pairings",
-                options=list(pairing_label_map.keys()),
-                default=default_selected,
-                key="del_pairs_multi",
+            del_pair_ids = st.multiselect(
+                "Delete Pairings (Select ID)",
+                options=[r["ID"] for r in rows],
             )
-            if st.button("Delete Selected", key="del_pairs_btn") and del_pair_labels:
-                try:
-                    ids = [pairing_label_map[lbl] for lbl in del_pair_labels if lbl in pairing_label_map]
-                    with Session(engine) as s:
-                        for pid in ids:
-                            obj = s.get(Pairing, pid)
-                            if obj:
-                                s.delete(obj)
-                        s.commit()
-                    invalidate_app_caches()
-                    st.success(f"Deleted {len(ids)} pairing(s).")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error: {e}")
+            if st.button("Delete Selected", key="del_pairs_btn") and del_pair_ids:
+                with Session(engine) as s:
+                    for pid in del_pair_ids:
+                        obj = s.get(Pairing, int(pid))
+                        if obj:
+                            s.delete(obj)
+                    s.commit()
+                invalidate_app_caches()
+                st.warning(f"Deleted {len(del_pair_ids)} pairing(s).")
+                st.rerun()
 # --------------- Admin: League ---------------
 if "League" in idx:
     with T[idx["League"]]:

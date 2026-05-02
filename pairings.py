@@ -3623,13 +3623,8 @@ if "Players" in idx:
                         chips = "".join(f'<span class="profile-title-chip">{t}</span>' for t in titles)
                         titles_html = f'<div class="profile-titles">{chips}</div>'
 
-                    achievements_html = ""
-                    if achievements:
-                        ach_chips = "".join(
-                            f'<span class="profile-achievement-chip" title="{ACHIEVEMENT_DESCRIPTIONS.get(a, "")}">🏅 {a}</span>'
-                            for a in achievements
-                        )
-                        achievements_html = f'<div class="profile-titles" style="margin-top:8px;">{ach_chips}</div>'
+                    # Achievements are rendered separately as st.popover widgets after
+                    # the header card, so they're tap-friendly on mobile.
 
                     st.markdown(
                         '<style>'
@@ -3661,9 +3656,9 @@ if "Players" in idx:
                         '.profile-game-vs{color:#c9a14a;font-weight:700;}'
                         '.profile-game-meta{color:#d4c8a0;margin-left:auto;font-size:0.85rem;}'
                         '.profile-faction-row{display:grid;'
-                        'grid-template-columns:22px minmax(60px, 1fr) minmax(40px, 90px) 32px;'
-                        'align-items:center;gap:8px;padding:6px 4px 6px 0;font-size:0.88rem;'
-                        'min-width:0;}'
+                        'grid-template-columns:22px minmax(60px, 1fr) minmax(40px, 90px) 36px;'
+                        'align-items:center;gap:8px;padding:6px 0;font-size:0.88rem;'
+                        'min-width:0;overflow:hidden;}'
                         '.profile-faction-row img{width:22px;height:22px;object-fit:contain;}'
                         '.profile-faction-name{color:#f4e9c8;'
                         'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}'
@@ -3673,7 +3668,9 @@ if "Players" in idx:
                         '.profile-faction-bar-fill{display:block;height:100%;'
                         'background:linear-gradient(90deg,#c9a14a,#d97a2a);}'
                         '.profile-faction-count{color:#d4c8a0;text-align:right;'
-                        'font-variant-numeric:tabular-nums;font-size:0.85rem;}'
+                        'font-variant-numeric:tabular-nums;font-size:0.85rem;'
+                        'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'
+                        'padding-right:2px;}'
                         '</style>',
                         unsafe_allow_html=True,
                     )
@@ -3682,10 +3679,27 @@ if "Players" in idx:
                         f'<div class="profile-card">'
                         f'<div class="profile-name">{player.name}</div>'
                         f'{titles_html}'
-                        f'{achievements_html}'
                         f'</div>',
                         unsafe_allow_html=True,
                     )
+
+                    # ---- Achievements: tap/click each badge to see description ----
+                    if achievements:
+                        st.markdown(
+                            '<div class="profile-section-title" style="margin-top:0;margin-bottom:6px;">Achievements</div>',
+                            unsafe_allow_html=True,
+                        )
+                        # Render badges in a wrapping row using narrow Streamlit columns.
+                        # Popover buttons work natively on both desktop (click) and mobile (tap).
+                        per_row = 4
+                        for chunk_start in range(0, len(achievements), per_row):
+                            chunk = achievements[chunk_start:chunk_start + per_row]
+                            cols = st.columns(per_row)
+                            for i, ach in enumerate(chunk):
+                                with cols[i]:
+                                    with st.popover(f"🏅 {ach}", width='stretch'):
+                                        st.markdown(f"**{ach}**")
+                                        st.caption(ACHIEVEMENT_DESCRIPTIONS.get(ach, "No description available."))
 
                     # ---- Lifetime signups per system ----
                     signup_counts = _player_signups_per_system(picked_id)
@@ -3729,7 +3743,7 @@ if "Players" in idx:
                             target = usage_cols[i] if isinstance(usage_cols, list) else usage_cols[0]
                             with target:
                                 st.markdown(
-                                    f'<div class="profile-card" style="margin-bottom:8px;padding:14px 14px;">'
+                                    f'<div class="profile-card" style="margin-bottom:8px;padding:14px 12px;overflow:hidden;">'
                                     f'<div style="font-size:0.85rem;color:#c9a14a;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">{sys_name}</div>'
                                     f'{"".join(rows_html)}'
                                     f'</div>',
@@ -3815,9 +3829,19 @@ if "Players" in idx:
                                         ),
                                     )
                                 )
-                                points = (
+                                # Visible markers users will click/tap to inspect
+                                visible_points = (
                                     alt.Chart(df_elo)
-                                    .mark_circle(size=80, color="#f4e9c8", stroke="#c9a14a", strokeWidth=1.5)
+                                    .mark_circle(size=110, color="#f4e9c8", stroke="#c9a14a", strokeWidth=2)
+                                    .encode(
+                                        x=alt.X("Game:Q"),
+                                        y=alt.Y("ELO:Q"),
+                                    )
+                                )
+                                # Larger invisible hit-areas so taps on mobile land easily
+                                tap_targets = (
+                                    alt.Chart(df_elo)
+                                    .mark_circle(size=400, opacity=0.001)
                                     .encode(
                                         x=alt.X("Game:Q"),
                                         y=alt.Y("ELO:Q"),
@@ -3829,7 +3853,7 @@ if "Players" in idx:
                                     )
                                 )
                                 chart = (
-                                    (line + points)
+                                    (line + visible_points + tap_targets)
                                     .properties(height=240, background="rgba(0,0,0,0.25)")
                                     .configure_view(stroke=None)
                                 )

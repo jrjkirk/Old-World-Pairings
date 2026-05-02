@@ -3869,6 +3869,7 @@ if "Players" in idx:
                                     .configure_view(stroke=None)
                                 )
 
+                                st.markdown('<div style="height:14px;"></div>', unsafe_allow_html=True)
                                 st.altair_chart(chart, width='stretch')
                             except Exception:
                                 # Fallback to st.line_chart if Plotly fails for any reason

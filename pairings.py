@@ -3791,8 +3791,12 @@ if "Players" in idx:
                                     name="ELO",
                                 ))
                                 # Calculate bounded Y-axis: lowest ELO - 20, highest ELO + 20
-                                y_min = min(ratings) - 20
-                                y_max = max(ratings) + 20
+                                y_min = float(min(ratings)) - 20.0
+                                y_max = float(max(ratings)) + 20.0
+                                # Guard against zero-range when all ratings are identical
+                                if y_max - y_min < 1.0:
+                                    y_max = y_min + 40.0
+
                                 fig.update_layout(
                                     height=240,
                                     margin=dict(l=10, r=10, t=10, b=10),
@@ -3801,26 +3805,25 @@ if "Players" in idx:
                                     font=dict(color="#e8e4d8"),
                                     hoverlabel=dict(bgcolor="#1e1e28", bordercolor="#c9a14a",
                                                     font=dict(color="#f4e9c8")),
-                                )
-                                fig.update_xaxes(
-                                    title="Game",
-                                    gridcolor="rgba(180,150,90,0.18)",
-                                    zerolinecolor="rgba(180,150,90,0.18)",
-                                    fixedrange=True,
-                                    tickmode="array",
-                                    tickvals=game_nums,
-                                    ticktext=[str(n) for n in game_nums],
-                                )
-                                fig.update_yaxes(
-                                    title="ELO",
-                                    gridcolor="rgba(180,150,90,0.18)",
-                                    zerolinecolor="rgba(180,150,90,0.18)",
-                                    range=[y_min, y_max],
-                                    autorange=False,
-                                    fixedrange=True,
+                                    xaxis=dict(
+                                        title="Game",
+                                        gridcolor="rgba(180,150,90,0.18)",
+                                        zerolinecolor="rgba(180,150,90,0.18)",
+                                        fixedrange=True,
+                                        tick0=0,
+                                        dtick=1,
+                                    ),
+                                    yaxis=dict(
+                                        title="ELO",
+                                        gridcolor="rgba(180,150,90,0.18)",
+                                        zerolinecolor="rgba(180,150,90,0.18)",
+                                        range=[y_min, y_max],
+                                        autorange=False,
+                                        fixedrange=True,
+                                    ),
                                 )
                                 st.markdown('<div class="profile-section-title" style="margin-top:14px;">ELO History</div>', unsafe_allow_html=True)
-                                st.plotly_chart(fig, width='stretch', config={"displayModeBar": False, "scrollZoom": False})
+                                st.plotly_chart(fig, width='stretch', config={"displayModeBar": False, "scrollZoom": False}, key=f"elo_chart_{picked_id}")
                             except Exception:
                                 # Fallback to st.line_chart if Plotly fails for any reason
                                 df_elo = pd.DataFrame({

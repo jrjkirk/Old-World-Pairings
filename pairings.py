@@ -3324,7 +3324,7 @@ with T[idx["Old World League"]]:
     margin-bottom: 12px;
 }
 .league-table thead th {
-    background: rgba(0,0,0,0.35);
+    background: rgba(0,0,0,0.25);
     color: #c9a14a;
     font-size: 0.78rem;
     text-transform: uppercase;
@@ -3658,8 +3658,8 @@ if "Players" in idx:
                         'display:flex;flex-direction:column;justify-content:space-between;'
                         'min-height:90px;}'
                         '.profile-flat-box{padding:14px 14px;margin-bottom:10px;color:#e8e4d8;}'
-                        '.profile-stat-label{font-size:0.7rem;color:#b8a878;text-transform:uppercase;'
-                        'letter-spacing:0.5px;line-height:1.2;}'
+                        '.profile-stat-label{font-size:0.85rem;color:#c9a14a;text-transform:uppercase;'
+                        'letter-spacing:0.5px;line-height:1.2;font-weight:600;}'
                         '.profile-stat-value{font-size:1.4rem;font-weight:700;color:#f4e9c8;line-height:1.1;'
                         'margin-top:auto;}'
                         '.profile-game-row{display:flex;align-items:center;gap:10px;padding:8px 4px;'

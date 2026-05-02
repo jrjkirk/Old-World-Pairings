@@ -3763,67 +3763,86 @@ if "Players" in idx:
                         elo_hist = league_stats.get("elo_history", [])
                         if len(elo_hist) >= 1:
                             try:
-                                import plotly.graph_objects as go
                                 # X-axis: 0 = starting rating, 1..N = games played
                                 game_nums = list(range(0, len(elo_hist)))
-                                ratings = [r[1] for r in elo_hist]
-                                # Hover labels: "Start" for the seed point, "Game N" for the rest
+                                ratings = [float(r[1]) for r in elo_hist]
                                 hover_labels = [
                                     "Start" if i == 0 else f"Game {i}"
                                     for i in range(len(elo_hist))
                                 ]
                                 dates = [r[0] or "—" for r in elo_hist]
 
-                                fig = go.Figure()
-                                fig.add_trace(go.Scatter(
-                                    x=game_nums,
-                                    y=ratings,
-                                    mode="lines+markers",
-                                    line=dict(color="#c9a14a", width=2.5),
-                                    marker=dict(size=7, color="#f4e9c8",
-                                                line=dict(color="#c9a14a", width=1.5)),
-                                    customdata=list(zip(hover_labels, dates, ratings)),
-                                    hovertemplate=(
-                                        "<b>%{customdata[0]}</b><br>"
-                                        "Date: %{customdata[1]}<br>"
-                                        "ELO: %{customdata[2]:.0f}<extra></extra>"
-                                    ),
-                                    name="ELO",
-                                ))
-                                # Calculate bounded Y-axis: lowest ELO - 20, highest ELO + 20
-                                y_min = float(min(ratings)) - 20.0
-                                y_max = float(max(ratings)) + 20.0
-                                # Guard against zero-range when all ratings are identical
+                                # Calculate bounded Y-axis
+                                y_min = min(ratings) - 20.0
+                                y_max = max(ratings) + 20.0
                                 if y_max - y_min < 1.0:
                                     y_max = y_min + 40.0
 
-                                fig.update_layout(
-                                    height=240,
-                                    margin=dict(l=10, r=10, t=10, b=10),
-                                    paper_bgcolor="rgba(0,0,0,0)",
-                                    plot_bgcolor="rgba(0,0,0,0.25)",
-                                    font=dict(color="#e8e4d8"),
-                                    hoverlabel=dict(bgcolor="#1e1e28", bordercolor="#c9a14a",
-                                                    font=dict(color="#f4e9c8")),
-                                    xaxis=dict(
-                                        title="Game",
-                                        gridcolor="rgba(180,150,90,0.18)",
-                                        zerolinecolor="rgba(180,150,90,0.18)",
-                                        fixedrange=True,
-                                        tick0=0,
-                                        dtick=1,
-                                    ),
-                                    yaxis=dict(
-                                        title="ELO",
-                                        gridcolor="rgba(180,150,90,0.18)",
-                                        zerolinecolor="rgba(180,150,90,0.18)",
-                                        range=[y_min, y_max],
-                                        autorange=False,
-                                        fixedrange=True,
-                                    ),
-                                )
+                                # Build the figure as a raw dict — most reliable way to
+                                # ensure Plotly honours all our axis constraints
+                                fig_dict = {
+                                    "data": [{
+                                        "type": "scatter",
+                                        "x": game_nums,
+                                        "y": ratings,
+                                        "mode": "lines+markers",
+                                        "line": {"color": "#c9a14a", "width": 2.5},
+                                        "marker": {
+                                            "size": 8,
+                                            "color": "#f4e9c8",
+                                            "line": {"color": "#c9a14a", "width": 1.5},
+                                        },
+                                        "customdata": [
+                                            [hl, d, r] for hl, d, r in zip(hover_labels, dates, ratings)
+                                        ],
+                                        "hovertemplate": (
+                                            "<b>%{customdata[0]}</b><br>"
+                                            "Date: %{customdata[1]}<br>"
+                                            "ELO: %{customdata[2]:.0f}<extra></extra>"
+                                        ),
+                                        "name": "ELO",
+                                    }],
+                                    "layout": {
+                                        "height": 240,
+                                        "margin": {"l": 50, "r": 20, "t": 10, "b": 40},
+                                        "paper_bgcolor": "rgba(0,0,0,0)",
+                                        "plot_bgcolor": "rgba(0,0,0,0.25)",
+                                        "font": {"color": "#e8e4d8"},
+                                        "hoverlabel": {
+                                            "bgcolor": "#1e1e28",
+                                            "bordercolor": "#c9a14a",
+                                            "font": {"color": "#f4e9c8"},
+                                        },
+                                        "xaxis": {
+                                            "title": {"text": "Game"},
+                                            "gridcolor": "rgba(180,150,90,0.18)",
+                                            "zerolinecolor": "rgba(180,150,90,0.18)",
+                                            "fixedrange": True,
+                                            "tick0": 0,
+                                            "dtick": 1,
+                                            "range": [-0.2, len(elo_hist) - 0.8],
+                                            "autorange": False,
+                                        },
+                                        "yaxis": {
+                                            "title": {"text": "ELO"},
+                                            "gridcolor": "rgba(180,150,90,0.18)",
+                                            "zerolinecolor": "rgba(180,150,90,0.18)",
+                                            "range": [y_min, y_max],
+                                            "autorange": False,
+                                            "fixedrange": True,
+                                        },
+                                        "showlegend": False,
+                                    },
+                                }
+
                                 st.markdown('<div class="profile-section-title" style="margin-top:14px;">ELO History</div>', unsafe_allow_html=True)
-                                st.plotly_chart(fig, width='stretch', config={"displayModeBar": False, "scrollZoom": False}, key=f"elo_chart_{picked_id}")
+                                st.plotly_chart(
+                                    fig_dict,
+                                    width='stretch',
+                                    config={"displayModeBar": False, "scrollZoom": False},
+                                    theme=None,
+                                    key=f"elo_chart_{picked_id}",
+                                )
                             except Exception:
                                 # Fallback to st.line_chart if Plotly fails for any reason
                                 df_elo = pd.DataFrame({

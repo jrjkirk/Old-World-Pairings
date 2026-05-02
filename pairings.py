@@ -1145,25 +1145,31 @@ def _faction_slug(name: str) -> str:
 @st.cache_data(show_spinner=False)
 def _faction_icon_data_uri(faction_name: str) -> str:
     """Return a data: URI for a faction icon, or empty string if no icon file is found.
-    Looks for icons/<slug>.svg, then .png, then .jpg in the project root."""
+    Looks in icons/<slug>.<ext>, then in icons/{tow,hh,kt}/<slug>.<ext> as fallbacks.
+    Supports .svg, .png, .jpg in priority order."""
     if not faction_name:
         return ""
     slug = _faction_slug(faction_name)
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    icons_dir = os.path.join(base_dir, "icons")
-    candidates = [
-        (os.path.join(icons_dir, f"{slug}.svg"), "image/svg+xml"),
-        (os.path.join(icons_dir, f"{slug}.png"), "image/png"),
-        (os.path.join(icons_dir, f"{slug}.jpg"), "image/jpeg"),
+    icons_root = os.path.join(base_dir, "icons")
+    # Search the flat folder first, then each subfolder
+    search_dirs = [
+        icons_root,
+        os.path.join(icons_root, "tow"),
+        os.path.join(icons_root, "hh"),
+        os.path.join(icons_root, "kt"),
     ]
-    for path, mime in candidates:
-        if os.path.exists(path):
-            try:
-                with open(path, "rb") as f:
-                    b64 = base64.b64encode(f.read()).decode()
-                return f"data:{mime};base64,{b64}"
-            except Exception:
-                continue
+    extensions = [(".svg", "image/svg+xml"), (".png", "image/png"), (".jpg", "image/jpeg")]
+    for ext, mime in extensions:
+        for d in search_dirs:
+            path = os.path.join(d, f"{slug}{ext}")
+            if os.path.exists(path):
+                try:
+                    with open(path, "rb") as f:
+                        b64 = base64.b64encode(f.read()).decode()
+                    return f"data:{mime};base64,{b64}"
+                except Exception:
+                    continue
     return ""
 
 
@@ -1436,15 +1442,25 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
         return accent_by_type.get((system, gt), border_default)
 
     def _icon_png_path(faction_name: str | None) -> str | None:
-        """Look for a PNG version of the faction icon (SVGs can't be rasterised without extra deps)."""
+        """Look for a PNG version of the faction icon. Checks the flat icons/
+        folder first, then the tow/, hh/, kt/ subfolders. SVGs can't be
+        rasterised here without extra deps so only PNG/JPG are supported."""
         if not faction_name:
             return None
         slug = _faction_slug(faction_name)
         base_dir = os.path.dirname(os.path.abspath(__file__))
+        icons_root = os.path.join(base_dir, "icons")
+        search_dirs = [
+            icons_root,
+            os.path.join(icons_root, "tow"),
+            os.path.join(icons_root, "hh"),
+            os.path.join(icons_root, "kt"),
+        ]
         for ext in ("png", "jpg"):
-            p = os.path.join(base_dir, "icons", f"{slug}.{ext}")
-            if os.path.exists(p):
-                return p
+            for d in search_dirs:
+                p = os.path.join(d, f"{slug}.{ext}")
+                if os.path.exists(p):
+                    return p
         return None
 
     # ---- Layout sizing ----
@@ -1652,10 +1668,18 @@ def render_league_rankings_image(rows: list[dict]) -> io.BytesIO | None:
             return None
         slug = _faction_slug(faction_name)
         base_dir = os.path.dirname(os.path.abspath(__file__))
+        icons_root = os.path.join(base_dir, "icons")
+        search_dirs = [
+            icons_root,
+            os.path.join(icons_root, "tow"),
+            os.path.join(icons_root, "hh"),
+            os.path.join(icons_root, "kt"),
+        ]
         for ext in ("png", "jpg"):
-            p = os.path.join(base_dir, "icons", f"{slug}.{ext}")
-            if os.path.exists(p):
-                return p
+            for d in search_dirs:
+                p = os.path.join(d, f"{slug}.{ext}")
+                if os.path.exists(p):
+                    return p
         return None
 
     # ---- Layout sizing ----

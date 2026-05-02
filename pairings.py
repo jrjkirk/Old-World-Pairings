@@ -1155,9 +1155,9 @@ def _faction_icon_data_uri(faction_name: str) -> str:
     # Search the flat folder first, then each subfolder
     search_dirs = [
         icons_root,
-        os.path.join(icons_root, "tow"),
-        os.path.join(icons_root, "hh"),
-        os.path.join(icons_root, "kt"),
+        os.path.join(icons_root, "TOW"),
+        os.path.join(icons_root, "HH"),
+        os.path.join(icons_root, "KT"),
     ]
     extensions = [(".svg", "image/svg+xml"), (".png", "image/png"), (".jpg", "image/jpeg")]
     for ext, mime in extensions:
@@ -1452,9 +1452,9 @@ def render_pairings_image(rows: list[dict], week: str, system: str) -> io.BytesI
         icons_root = os.path.join(base_dir, "icons")
         search_dirs = [
             icons_root,
-            os.path.join(icons_root, "tow"),
-            os.path.join(icons_root, "hh"),
-            os.path.join(icons_root, "kt"),
+            os.path.join(icons_root, "TOW"),
+            os.path.join(icons_root, "HH"),
+            os.path.join(icons_root, "KT"),
         ]
         for ext in ("png", "jpg"):
             for d in search_dirs:
@@ -1671,9 +1671,9 @@ def render_league_rankings_image(rows: list[dict]) -> io.BytesIO | None:
         icons_root = os.path.join(base_dir, "icons")
         search_dirs = [
             icons_root,
-            os.path.join(icons_root, "tow"),
-            os.path.join(icons_root, "hh"),
-            os.path.join(icons_root, "kt"),
+            os.path.join(icons_root, "TOW"),
+            os.path.join(icons_root, "HH"),
+            os.path.join(icons_root, "KT"),
         ]
         for ext in ("png", "jpg"):
             for d in search_dirs:

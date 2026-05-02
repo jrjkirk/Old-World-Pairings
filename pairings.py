@@ -762,7 +762,7 @@ def _player_pairings_for_system(player_id: int, system: str, limit: Optional[int
             select(Pairing).where(
                 (Pairing.system == system)
                 & ((Pairing.a_signup_id.in_(my_su_ids)) | (Pairing.b_signup_id.in_(my_su_ids)))
-            ).order_by(Pairing.week.desc(), Pairing.id.desc())
+            )
         ).all()
 
         all_su_ids = set()
@@ -774,6 +774,15 @@ def _player_pairings_for_system(player_id: int, system: str, limit: Optional[int
             su.id: su
             for su in s.exec(select(Signup).where(Signup.id.in_(all_su_ids))).all()
         } if all_su_ids else {}
+
+    # Sort by parsed week date (newest first), with id as tiebreaker.
+    # The `week` column stores DD/MM/YYYY strings which don't sort lexicographically.
+    def _week_sort_key(p):
+        try:
+            return (parse_week_id(p.week), p.id or 0)
+        except Exception:
+            return (date.min, p.id or 0)
+    prs = sorted(prs, key=_week_sort_key, reverse=True)
 
     out: List[Tuple[Pairing, Optional[Signup], Optional[Signup]]] = []
     for p in prs:
@@ -3708,7 +3717,7 @@ if "Players" in idx:
                     visible_systems = [s for s in SYSTEMS if signup_counts.get(s, 0) > 0]
 
                     if visible_systems:
-                        st.markdown('<div class="profile-section-title">Activity</div>', unsafe_allow_html=True)
+                        st.markdown('<div class="profile-section-title">Games Played</div>', unsafe_allow_html=True)
                         tiles = "".join(
                             f'<div class="profile-stat"><div class="profile-stat-label">{s}</div>'
                             f'<div class="profile-stat-value">{signup_counts.get(s, 0)}</div></div>'
@@ -3721,7 +3730,7 @@ if "Players" in idx:
                     # ---- Faction Usage breakdown per system ----
                     faction_usage = _player_faction_usage_per_system(picked_id)
                     if faction_usage:
-                        st.markdown('<div class="profile-section-title" style="margin-top:14px;">Faction Usage</div>', unsafe_allow_html=True)
+                        st.markdown('<div class="profile-section-title" style="margin-top:14px;">Faction Breakdown</div>', unsafe_allow_html=True)
                         usage_cols = st.columns(min(len(faction_usage), 3)) if len(faction_usage) > 1 else [st.container()]
                         for i, sys_name in enumerate([s for s in SYSTEMS if s in faction_usage]):
                             facs = faction_usage[sys_name]
@@ -3860,7 +3869,6 @@ if "Players" in idx:
                                     .configure_view(stroke=None)
                                 )
 
-                                st.markdown('<div class="profile-section-title" style="margin-top:14px;">ELO History</div>', unsafe_allow_html=True)
                                 st.altair_chart(chart, width='stretch')
                             except Exception:
                                 # Fallback to st.line_chart if Plotly fails for any reason
@@ -3871,7 +3879,18 @@ if "Players" in idx:
                                 st.line_chart(df_elo, height=220)
 
                         # Recent league results (last 5)
-                        recent_results = league_stats.get("results", [])[-5:][::-1]
+                        # Sort newest-first by parsed result_date, falling back to id
+                        def _parse_result_date(lr):
+                            try:
+                                return parse_week_id(lr.result_date)
+                            except Exception:
+                                return date.min
+                        sorted_results = sorted(
+                            league_stats.get("results", []),
+                            key=lambda lr: (_parse_result_date(lr), lr.id or 0),
+                            reverse=True,
+                        )
+                        recent_results = sorted_results[:5]
                         if recent_results:
                             st.markdown('<div class="profile-section-title" style="margin-top:14px;">Recent League Results</div>', unsafe_allow_html=True)
                             rows_html = []

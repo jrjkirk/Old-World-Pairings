@@ -3661,21 +3661,19 @@ if "Players" in idx:
                         '.profile-game-vs{color:#c9a14a;font-weight:700;}'
                         '.profile-game-meta{color:#d4c8a0;margin-left:auto;font-size:0.85rem;}'
                         '.profile-faction-row{display:grid;'
-                        'grid-template-columns:24px minmax(0, 1fr) 200px 36px;'
-                        'align-items:center;gap:10px;padding:6px 0;font-size:0.92rem;}'
-                        '.profile-faction-row img{width:24px;height:24px;object-fit:contain;}'
+                        'grid-template-columns:22px minmax(60px, 1fr) minmax(40px, 90px) 28px;'
+                        'align-items:center;gap:8px;padding:6px 0;font-size:0.88rem;'
+                        'min-width:0;}'
+                        '.profile-faction-row img{width:22px;height:22px;object-fit:contain;}'
                         '.profile-faction-name{color:#f4e9c8;'
-                        'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}'
+                        'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}'
                         '.profile-faction-bar{height:8px;background:rgba(0,0,0,0.4);'
-                        'border-radius:4px;overflow:hidden;'
+                        'border-radius:4px;overflow:hidden;min-width:0;'
                         'border:1px solid rgba(180,150,90,0.18);}'
                         '.profile-faction-bar-fill{display:block;height:100%;'
                         'background:linear-gradient(90deg,#c9a14a,#d97a2a);}'
                         '.profile-faction-count{color:#d4c8a0;text-align:right;'
-                        'font-variant-numeric:tabular-nums;}'
-                        '@media (max-width:600px){.profile-faction-row{'
-                        'grid-template-columns:22px minmax(0, 1fr) 100px 30px;gap:8px;}'
-                        '.profile-faction-row img{width:22px;height:22px;}}'
+                        'font-variant-numeric:tabular-nums;font-size:0.85rem;}'
                         '</style>',
                         unsafe_allow_html=True,
                     )
@@ -3801,25 +3799,25 @@ if "Players" in idx:
                                     paper_bgcolor="rgba(0,0,0,0)",
                                     plot_bgcolor="rgba(0,0,0,0.25)",
                                     font=dict(color="#e8e4d8"),
-                                    xaxis=dict(
-                                        title="Game",
-                                        gridcolor="rgba(180,150,90,0.18)",
-                                        zerolinecolor="rgba(180,150,90,0.18)",
-                                        fixedrange=True,
-                                        tickmode="array",
-                                        tickvals=game_nums,
-                                        ticktext=[str(n) for n in game_nums],
-                                    ),
-                                    yaxis=dict(
-                                        title="ELO",
-                                        gridcolor="rgba(180,150,90,0.18)",
-                                        zerolinecolor="rgba(180,150,90,0.18)",
-                                        range=[y_min, y_max],
-                                        autorange=False,
-                                        fixedrange=True,
-                                    ),
                                     hoverlabel=dict(bgcolor="#1e1e28", bordercolor="#c9a14a",
                                                     font=dict(color="#f4e9c8")),
+                                )
+                                fig.update_xaxes(
+                                    title="Game",
+                                    gridcolor="rgba(180,150,90,0.18)",
+                                    zerolinecolor="rgba(180,150,90,0.18)",
+                                    fixedrange=True,
+                                    tickmode="array",
+                                    tickvals=game_nums,
+                                    ticktext=[str(n) for n in game_nums],
+                                )
+                                fig.update_yaxes(
+                                    title="ELO",
+                                    gridcolor="rgba(180,150,90,0.18)",
+                                    zerolinecolor="rgba(180,150,90,0.18)",
+                                    range=[y_min, y_max],
+                                    autorange=False,
+                                    fixedrange=True,
                                 )
                                 st.markdown('<div class="profile-section-title" style="margin-top:14px;">ELO History</div>', unsafe_allow_html=True)
                                 st.plotly_chart(fig, width='stretch', config={"displayModeBar": False, "scrollZoom": False})

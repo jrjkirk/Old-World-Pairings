@@ -3819,19 +3819,34 @@ if "Pairings Admin" in idx:
         with col_p1:
             if st.button("Publish to Public"):
                 with Session(engine) as s:
-                    g = gate or PublishState(week=week_lookup, system=sys_pick)
-                    s.merge(g) if g.id else s.add(g)
-                    g.published = True
-                    s.add(g); s.commit()
+                    fresh = s.exec(
+                        select(PublishState).where(
+                            (PublishState.week == week_lookup) & (PublishState.system == sys_pick)
+                        )
+                    ).first()
+                    if fresh:
+                        fresh.published = True
+                    else:
+                        fresh = PublishState(week=week_lookup, system=sys_pick, published=True)
+                        s.add(fresh)
+                    s.commit()
                 invalidate_app_caches()
                 st.success("Published.")
                 st.rerun()
         with col_p2:
             if st.button("Unpublish"):
                 with Session(engine) as s:
-                    g = gate or PublishState(week=week_lookup, system=sys_pick)
-                    g.published = False
-                    s.add(g); s.commit()
+                    fresh = s.exec(
+                        select(PublishState).where(
+                            (PublishState.week == week_lookup) & (PublishState.system == sys_pick)
+                        )
+                    ).first()
+                    if fresh:
+                        fresh.published = False
+                    else:
+                        fresh = PublishState(week=week_lookup, system=sys_pick, published=False)
+                        s.add(fresh)
+                    s.commit()
                 invalidate_app_caches()
                 st.warning("Unpublished.")
                 st.rerun()

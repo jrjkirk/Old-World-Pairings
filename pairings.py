@@ -337,6 +337,8 @@ class Player(SQLModel, table=True):
     default_faction: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     active: bool = True
+    titles: Optional[str] = Field(default=None)  # JSON list of titles, e.g. ["Champion of the Empire 2026"]
+    admin_notes: Optional[str] = Field(default=None)  # private notes for admins, never shown publicly
 
 class PublishState(SQLModel, table=True):
     """Per-week/system publish gate for public view."""
@@ -503,6 +505,28 @@ def ensure_league_results_table() -> None:
         pass
 
 ensure_league_results_table()
+
+
+def ensure_player_columns() -> None:
+    """Add new columns (titles, admin_notes) to the players table if missing."""
+    try:
+        with engine.connect() as conn:
+            is_sqlite = str(engine.url).startswith("sqlite")
+            if is_sqlite:
+                existing_cols = {r[1] for r in conn.exec_driver_sql('PRAGMA table_info("players")').fetchall()}
+                if "titles" not in existing_cols:
+                    conn.exec_driver_sql('ALTER TABLE "players" ADD COLUMN titles TEXT')
+                if "admin_notes" not in existing_cols:
+                    conn.exec_driver_sql('ALTER TABLE "players" ADD COLUMN admin_notes TEXT')
+            else:
+                conn.exec_driver_sql('ALTER TABLE players ADD COLUMN IF NOT EXISTS titles TEXT')
+                conn.exec_driver_sql('ALTER TABLE players ADD COLUMN IF NOT EXISTS admin_notes TEXT')
+            conn.commit()
+    except Exception:
+        pass
+
+
+ensure_player_columns()
 
 LEAGUE_BASE_RATING = 1000.0
 LEAGUE_CASUAL_K_FACTOR = 10
@@ -686,6 +710,151 @@ def league_rankings_rows() -> List[dict]:
         }
         for idx, r in enumerate(ratings)
     ]
+
+
+# ===================== Player Profile Helpers =====================
+
+def _player_titles(player: Player) -> List[str]:
+    """Decode the titles JSON list off a Player row, returning empty list if unset/malformed."""
+    raw = getattr(player, "titles", None)
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return [str(x) for x in parsed if str(x).strip()]
+    except Exception:
+        pass
+    return []
+
+
+def _set_player_titles(player: Player, titles: List[str]) -> None:
+    """Encode a titles list onto a Player row as JSON."""
+    cleaned = [t.strip() for t in titles if t and t.strip()]
+    player.titles = json.dumps(cleaned) if cleaned else None
+
+
+def _player_signups_per_system(player_id: int) -> Dict[str, int]:
+    """Return {system: count} of total signups by this player across all weeks."""
+    with Session(engine) as s:
+        rows = s.exec(select(Signup).where(Signup.player_id == player_id)).all()
+    counts: Dict[str, int] = {}
+    for su in rows:
+        if su.system:
+            counts[su.system] = counts.get(su.system, 0) + 1
+    return counts
+
+
+def _player_pairings_for_system(player_id: int, system: str, limit: Optional[int] = None) -> List[Tuple[Pairing, Optional[Signup], Optional[Signup]]]:
+    """Return pairings the player took part in for a given system, newest first.
+
+    Each tuple is (pairing, this_player_signup, opponent_signup_or_None).
+    """
+    with Session(engine) as s:
+        my_sus = s.exec(
+            select(Signup).where((Signup.player_id == player_id) & (Signup.system == system))
+        ).all()
+        if not my_sus:
+            return []
+        my_su_ids = {su.id for su in my_sus}
+
+        prs = s.exec(
+            select(Pairing).where(
+                (Pairing.system == system)
+                & ((Pairing.a_signup_id.in_(my_su_ids)) | (Pairing.b_signup_id.in_(my_su_ids)))
+            ).order_by(Pairing.week.desc(), Pairing.id.desc())
+        ).all()
+
+        all_su_ids = set()
+        for p in prs:
+            all_su_ids.add(p.a_signup_id)
+            if p.b_signup_id:
+                all_su_ids.add(p.b_signup_id)
+        su_by_id = {
+            su.id: su
+            for su in s.exec(select(Signup).where(Signup.id.in_(all_su_ids))).all()
+        } if all_su_ids else {}
+
+    out: List[Tuple[Pairing, Optional[Signup], Optional[Signup]]] = []
+    for p in prs:
+        if p.a_signup_id in my_su_ids:
+            mine = su_by_id.get(p.a_signup_id)
+            opp = su_by_id.get(p.b_signup_id) if p.b_signup_id else None
+        else:
+            mine = su_by_id.get(p.b_signup_id)
+            opp = su_by_id.get(p.a_signup_id) if p.a_signup_id else None
+        out.append((p, mine, opp))
+
+    if limit is not None:
+        out = out[:limit]
+    return out
+
+
+def _player_league_stats(player_id: int) -> Optional[dict]:
+    """Return TOW league stats for the player, or None if they've played no league games."""
+    ensure_league_results_table()
+    with Session(engine) as s:
+        results = s.exec(
+            select(LeagueResult).where(
+                (LeagueResult.player_1_id == player_id) | (LeagueResult.player_2_id == player_id)
+            ).order_by(LeagueResult.id)
+        ).all()
+        rating_row = s.exec(select(LeagueRating).where(LeagueRating.player_id == player_id)).first()
+
+    if not results:
+        return None
+
+    wins = draws = losses = 0
+    elo_history: List[Tuple[str, float]] = []
+
+    for lr in results:
+        is_p1 = (lr.player_1_id == player_id)
+        result = (lr.result or "").strip()
+        if result == "Player 1 Victory":
+            if is_p1: wins += 1
+            else: losses += 1
+        elif result == "Player 2 Victory":
+            if is_p1: losses += 1
+            else: wins += 1
+        else:
+            draws += 1
+        rating_after = lr.player_1_rating_after if is_p1 else lr.player_2_rating_after
+        if rating_after is not None:
+            elo_history.append((lr.result_date or "", float(rating_after)))
+
+    rank = None
+    rankings = league_rankings_rows()
+    for row in rankings:
+        if rating_row and row.get("Name") == rating_row.player_name:
+            rank = row.get("Rank")
+            break
+
+    faction_counts: Dict[str, int] = {}
+    for lr in results:
+        f = lr.player_1_faction if lr.player_1_id == player_id else lr.player_2_faction
+        if f:
+            faction_counts[f] = faction_counts.get(f, 0) + 1
+
+    return {
+        "elo": round(rating_row.rating) if rating_row else None,
+        "rank": rank,
+        "wins": wins,
+        "draws": draws,
+        "losses": losses,
+        "games": wins + draws + losses,
+        "elo_history": elo_history,
+        "faction_counts": faction_counts,
+        "results": results,
+    }
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def all_active_players() -> List[Tuple[int, str]]:
+    """Return [(id, name), ...] for all active players, sorted by name."""
+    with Session(engine) as s:
+        rows = s.exec(select(Player).where(Player.active == True).order_by(Player.name)).all()
+    return [(p.id, p.name) for p in rows if p.id is not None]
+
 
 @st.cache_data(ttl=600, show_spinner=False)
 def league_submitted_games_rows() -> List[dict]:
@@ -2632,8 +2801,8 @@ with st.sidebar:
     elif disc_img:
         st.markdown(f"<div style='display:flex;justify-content:center;align-items:center;margin-top:10px'>{disc_img}</div>", unsafe_allow_html=True)
 
-tabs_public = ["Call to Arms", "Pairings", "Old World League"]
-tabs_admin  = ["Signups", "Pairings Admin", "League", "View History"]
+tabs_public = ["Call to Arms", "Pairings", "Old World League", "Players"]
+tabs_admin  = ["Signups", "Pairings Admin", "League", "Players Admin", "View History"]
 order = tabs_public + (tabs_admin if st.session_state.get("is_admin") else [])
 T = st.tabs(order)
 idx = {name:i for i,name in enumerate(order)}
@@ -3077,6 +3246,16 @@ with T[idx["Old World League"]]:
     color: #f4e9c8;
 }
 .league-name { font-weight: 600; color: #f4e9c8; }
+.league-name-link {
+    color: #f4e9c8 !important;
+    text-decoration: none;
+    border-bottom: 1px dotted rgba(201,161,74,0.45);
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+.league-name-link:hover {
+    color: #c9a14a !important;
+    border-bottom-color: #c9a14a;
+}
 .league-faction-cell {
     display: flex;
     align-items: center;
@@ -3119,6 +3298,11 @@ with T[idx["Old World League"]]:
 """, unsafe_allow_html=True)
 
         medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+        # Build a name -> player_id map so we can link names to profiles
+        with Session(engine) as _s_pmap:
+            _all_players = _s_pmap.exec(select(Player)).all()
+        _name_to_player_id = {p.name: p.id for p in _all_players if p.id is not None}
+
         rows_html = []
         for r in league_rows:
             rank = r.get("Rank")
@@ -3136,11 +3320,19 @@ with T[idx["Old World League"]]:
                 f'<span class="league-faction-name">{faction_name}</span></div>'
             )
 
+            # Make name a profile link if we can resolve a player id for it
+            player_name = r.get("Name", "")
+            player_id = _name_to_player_id.get(player_name)
+            if player_id is not None:
+                name_html = f'<a class="league-name-link" href="?player_id={player_id}" target="_self">{player_name}</a>'
+            else:
+                name_html = player_name
+
             rows_html.append(
                 f'<tr class="{row_class}">'
                 f'<td class="league-rank">{rank_cell}</td>'
                 f'<td class="league-elo">{r.get("ELO", "")}</td>'
-                f'<td class="league-name">{r.get("Name", "")}</td>'
+                f'<td class="league-name">{name_html}</td>'
                 f'<td>{faction_cell}</td>'
                 f'<td class="league-wdl">{r.get("W/D/L", "0/0/0")}</td>'
                 f'<td class="league-games">{r.get("Games Played", 0)}</td>'
@@ -3283,6 +3475,211 @@ with T[idx["Old World League"]]:
                             st.success("League result submitted and ELO rankings recalculated.")
         else:
             st.info("No player profiles found yet. Add players via the signup flow first.")
+
+
+# --------------- Public: Players ---------------
+if "Players" in idx:
+    with T[idx["Players"]]:
+        st.markdown("### Player Profiles")
+
+        # Load players list
+        with Session(engine) as _ps:
+            all_players_rows = _ps.exec(select(Player).order_by(Player.name)).all()
+
+        if not all_players_rows:
+            st.info("No player profiles yet. Players are created automatically the first time they sign up.")
+        else:
+            # Pre-select via ?player_id= query param if present (e.g. clicked from league rankings)
+            qp = st.query_params
+            preselect_id = None
+            try:
+                preselect_id = int(qp.get("player_id")) if qp.get("player_id") else None
+            except Exception:
+                preselect_id = None
+
+            id_to_name = {p.id: p.name for p in all_players_rows if p.id is not None}
+            options = [("— Select a player —", None)] + [(p.name, p.id) for p in all_players_rows if p.id is not None]
+            option_labels = [o[0] for o in options]
+
+            # Determine default index from query param
+            default_idx = 0
+            if preselect_id and preselect_id in id_to_name:
+                target_name = id_to_name[preselect_id]
+                for i, lbl in enumerate(option_labels):
+                    if lbl == target_name:
+                        default_idx = i
+                        break
+
+            picked_label = st.selectbox(
+                "Choose a Player",
+                options=option_labels,
+                index=default_idx,
+                key="profile_player_pick",
+            )
+            picked_id = None
+            for lbl, pid in options:
+                if lbl == picked_label:
+                    picked_id = pid
+                    break
+
+            if picked_id:
+                # Load player + render profile
+                with Session(engine) as _ps:
+                    player = _ps.get(Player, picked_id)
+
+                if not player:
+                    st.warning("Player not found.")
+                else:
+                    # ---- Header: name + titles ----
+                    titles = _player_titles(player)
+                    titles_html = ""
+                    if titles:
+                        chips = "".join(f'<span class="profile-title-chip">{t}</span>' for t in titles)
+                        titles_html = f'<div class="profile-titles">{chips}</div>'
+
+                    st.markdown(
+                        '<style>'
+                        '.profile-card{background:linear-gradient(135deg,rgba(30,30,40,0.92),rgba(20,20,30,0.95));'
+                        'border:1px solid rgba(180,150,90,0.35);border-radius:12px;padding:18px 22px;'
+                        'margin-bottom:14px;box-shadow:0 4px 14px rgba(0,0,0,0.35);color:#e8e4d8;}'
+                        '.profile-name{font-size:1.6rem;font-weight:700;color:#f4e9c8;margin-bottom:8px;}'
+                        '.profile-titles{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}'
+                        '.profile-title-chip{display:inline-block;background:rgba(201,161,74,0.18);'
+                        'border:1px solid rgba(201,161,74,0.45);color:#f4e9c8;padding:3px 10px;'
+                        'border-radius:12px;font-size:0.82rem;}'
+                        '.profile-section-title{font-size:1.05rem;font-weight:600;color:#c9a14a;'
+                        'text-transform:uppercase;letter-spacing:0.6px;margin-top:8px;margin-bottom:8px;}'
+                        '.profile-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));'
+                        'gap:10px;}'
+                        '.profile-stat{background:rgba(0,0,0,0.25);border:1px solid rgba(180,150,90,0.25);'
+                        'border-radius:10px;padding:10px;text-align:center;}'
+                        '.profile-stat-label{font-size:0.7rem;color:#b8a878;text-transform:uppercase;'
+                        'letter-spacing:0.5px;}'
+                        '.profile-stat-value{font-size:1.4rem;font-weight:700;color:#f4e9c8;line-height:1.1;'
+                        'margin-top:4px;}'
+                        '.profile-game-row{display:flex;align-items:center;gap:10px;padding:8px 4px;'
+                        'border-bottom:1px dashed rgba(180,150,90,0.18);font-size:0.92rem;}'
+                        '.profile-game-row:last-child{border-bottom:none;}'
+                        '.profile-game-week{color:#b8a878;min-width:90px;font-variant-numeric:tabular-nums;}'
+                        '.profile-game-vs{color:#c9a14a;font-weight:700;}'
+                        '.profile-game-meta{color:#d4c8a0;margin-left:auto;font-size:0.85rem;}'
+                        '</style>',
+                        unsafe_allow_html=True,
+                    )
+
+                    st.markdown(
+                        f'<div class="profile-card">'
+                        f'<div class="profile-name">{player.name}</div>'
+                        f'{titles_html}'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                    # ---- Lifetime signups per system ----
+                    signup_counts = _player_signups_per_system(picked_id)
+                    visible_systems = [s for s in SYSTEMS if signup_counts.get(s, 0) > 0]
+
+                    if visible_systems:
+                        st.markdown('<div class="profile-section-title">Activity</div>', unsafe_allow_html=True)
+                        tiles = "".join(
+                            f'<div class="profile-stat"><div class="profile-stat-label">{s}</div>'
+                            f'<div class="profile-stat-value">{signup_counts.get(s, 0)}</div></div>'
+                            for s in visible_systems
+                        )
+                        st.markdown(f'<div class="profile-stat-grid">{tiles}</div>', unsafe_allow_html=True)
+                    else:
+                        st.caption("This player hasn't signed up for any sessions yet.")
+
+                    # ---- TOW League stats ----
+                    league_stats = _player_league_stats(picked_id)
+                    if league_stats and league_stats.get("games", 0) > 0:
+                        st.markdown('<div class="profile-section-title">The Old World League</div>', unsafe_allow_html=True)
+
+                        rank_disp = f"#{league_stats['rank']}" if league_stats.get("rank") else "—"
+                        wdl_disp = f"{league_stats['wins']}/{league_stats['draws']}/{league_stats['losses']}"
+                        elo_disp = league_stats.get("elo") or "—"
+
+                        league_tiles = (
+                            f'<div class="profile-stat"><div class="profile-stat-label">ELO</div>'
+                            f'<div class="profile-stat-value">{elo_disp}</div></div>'
+                            f'<div class="profile-stat"><div class="profile-stat-label">Rank</div>'
+                            f'<div class="profile-stat-value">{rank_disp}</div></div>'
+                            f'<div class="profile-stat"><div class="profile-stat-label">W/D/L</div>'
+                            f'<div class="profile-stat-value">{wdl_disp}</div></div>'
+                            f'<div class="profile-stat"><div class="profile-stat-label">League Games</div>'
+                            f'<div class="profile-stat-value">{league_stats["games"]}</div></div>'
+                        )
+                        st.markdown(f'<div class="profile-stat-grid">{league_tiles}</div>', unsafe_allow_html=True)
+
+                        # ELO history graph
+                        elo_hist = league_stats.get("elo_history", [])
+                        if len(elo_hist) >= 2:
+                            try:
+                                df_elo = pd.DataFrame({
+                                    "Game": list(range(1, len(elo_hist) + 1)),
+                                    "ELO": [r[1] for r in elo_hist],
+                                }).set_index("Game")
+                                st.markdown('<div class="profile-section-title" style="margin-top:14px;">ELO History</div>', unsafe_allow_html=True)
+                                st.line_chart(df_elo, height=220)
+                            except Exception:
+                                pass
+
+                        # Recent league results (last 5)
+                        recent_results = league_stats.get("results", [])[-5:][::-1]
+                        if recent_results:
+                            st.markdown('<div class="profile-section-title" style="margin-top:14px;">Recent League Results</div>', unsafe_allow_html=True)
+                            rows_html = []
+                            for lr in recent_results:
+                                is_p1 = (lr.player_1_id == picked_id)
+                                opp_name = lr.player_2_name if is_p1 else lr.player_1_name
+                                opp_faction = (lr.player_2_faction if is_p1 else lr.player_1_faction) or "—"
+                                my_faction = (lr.player_1_faction if is_p1 else lr.player_2_faction) or "—"
+                                result = (lr.result or "").strip()
+                                if result == "Player 1 Victory":
+                                    outcome = "WIN" if is_p1 else "LOSS"
+                                elif result == "Player 2 Victory":
+                                    outcome = "WIN" if not is_p1 else "LOSS"
+                                else:
+                                    outcome = "DRAW"
+                                color = "#6eb46e" if outcome == "WIN" else ("#d25050" if outcome == "LOSS" else "#c9a14a")
+                                rows_html.append(
+                                    f'<div class="profile-game-row">'
+                                    f'<span class="profile-game-week">{lr.result_date or "—"}</span>'
+                                    f'<span style="color:{color};font-weight:700;min-width:46px;">{outcome}</span>'
+                                    f'<span><em>{my_faction}</em> <span class="profile-game-vs">vs</span> '
+                                    f'<strong>{opp_name}</strong> (<em>{opp_faction}</em>)</span>'
+                                    f'</div>'
+                                )
+                            st.markdown(f'<div class="profile-card">{"".join(rows_html)}</div>', unsafe_allow_html=True)
+
+                    # ---- Recent games per system (signups + pairings, last 5 each) ----
+                    for sys_name in visible_systems:
+                        recent = _player_pairings_for_system(picked_id, sys_name, limit=5)
+                        if not recent:
+                            continue
+                        st.markdown(
+                            f'<div class="profile-section-title" style="margin-top:14px;">Recent {sys_name} Games</div>',
+                            unsafe_allow_html=True,
+                        )
+                        rows_html = []
+                        for p, mine, opp in recent:
+                            opp_name = opp.player_name if opp else "BYE / Standby"
+                            opp_faction = (p.b_faction if (mine and p.a_signup_id == mine.id) else p.a_faction) or (
+                                opp.faction if opp else None
+                            ) or "—"
+                            my_faction = (p.a_faction if (mine and p.a_signup_id == mine.id) else p.b_faction) or (
+                                mine.faction if mine else None
+                            ) or "—"
+                            type_disp = (mine.vibe if mine else None) or "—"
+                            rows_html.append(
+                                f'<div class="profile-game-row">'
+                                f'<span class="profile-game-week">{p.week}</span>'
+                                f'<span><em>{my_faction}</em> <span class="profile-game-vs">vs</span> '
+                                f'<strong>{opp_name}</strong> (<em>{opp_faction}</em>)</span>'
+                                f'<span class="profile-game-meta">{type_disp}</span>'
+                                f'</div>'
+                            )
+                        st.markdown(f'<div class="profile-card">{"".join(rows_html)}</div>', unsafe_allow_html=True)
 
 
 # --------------- Admin: Signups ---------------
@@ -3775,6 +4172,77 @@ if "League" in idx:
                     s.commit()
                 recalc_league_ratings()
                 st.warning(f"Deleted {len(delete_result_ids)} league result(s) and recalculated ELO ratings.")
+
+
+# --------------- Admin: Players ---------------
+if "Players Admin" in idx:
+    with T[idx["Players Admin"]]:
+        st.subheader("Players Admin")
+        st.caption("Edit a player's display name, manage their titles, and add private admin notes.")
+
+        with Session(engine) as _ps:
+            all_players_admin = _ps.exec(select(Player).order_by(Player.name)).all()
+
+        if not all_players_admin:
+            st.info("No players in the database yet.")
+        else:
+            id_label_map = {p.id: f"{p.name}  (#{p.id})" for p in all_players_admin if p.id is not None}
+            id_label_options = list(id_label_map.values())
+            picked_admin_label = st.selectbox(
+                "Choose a Player to Edit",
+                options=id_label_options,
+                index=0,
+                key="adm_player_pick",
+            )
+            picked_admin_id = None
+            for pid, lbl in id_label_map.items():
+                if lbl == picked_admin_label:
+                    picked_admin_id = pid
+                    break
+
+            if picked_admin_id:
+                with Session(engine) as _ps:
+                    pl = _ps.get(Player, picked_admin_id)
+
+                if pl:
+                    current_titles = _player_titles(pl)
+                    titles_text_default = "\n".join(current_titles)
+
+                    with st.form("edit_player_form", clear_on_submit=False):
+                        new_name = st.text_input("Display Name", value=pl.name or "")
+                        new_titles_text = st.text_area(
+                            "Titles (One Per Line)",
+                            value=titles_text_default,
+                            help="Each line becomes a title chip on the player's public profile (e.g. 'Champion of the Empire 2026').",
+                            height=120,
+                        )
+                        new_active = st.checkbox("Active (show in signup lists)", value=bool(pl.active))
+                        new_notes = st.text_area(
+                            "Admin Notes (Private — Not Shown Publicly)",
+                            value=pl.admin_notes or "",
+                            height=80,
+                        )
+                        save_btn = st.form_submit_button("Save Changes", type="primary")
+
+                    if save_btn:
+                        try:
+                            new_titles_list = [
+                                line.strip() for line in (new_titles_text or "").splitlines() if line.strip()
+                            ]
+                            with Session(engine) as _ws:
+                                fresh = _ws.get(Player, picked_admin_id)
+                                if fresh:
+                                    fresh.name = (new_name or "").strip() or fresh.name
+                                    _set_player_titles(fresh, new_titles_list)
+                                    fresh.active = bool(new_active)
+                                    fresh.admin_notes = (new_notes or "").strip() or None
+                                    _ws.add(fresh)
+                                    _ws.commit()
+                            invalidate_app_caches()
+                            st.success("Player profile saved.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to save: {e}")
 
 
 # --------------- Admin: View History ---------------

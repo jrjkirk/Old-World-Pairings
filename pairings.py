@@ -3661,8 +3661,8 @@ if "Players" in idx:
                         '.profile-game-vs{color:#c9a14a;font-weight:700;}'
                         '.profile-game-meta{color:#d4c8a0;margin-left:auto;font-size:0.85rem;}'
                         '.profile-faction-row{display:grid;'
-                        'grid-template-columns:22px minmax(60px, 1fr) minmax(40px, 90px) 28px;'
-                        'align-items:center;gap:8px;padding:6px 0;font-size:0.88rem;'
+                        'grid-template-columns:22px minmax(60px, 1fr) minmax(40px, 90px) 32px;'
+                        'align-items:center;gap:8px;padding:6px 4px 6px 0;font-size:0.88rem;'
                         'min-width:0;}'
                         '.profile-faction-row img{width:22px;height:22px;object-fit:contain;}'
                         '.profile-faction-name{color:#f4e9c8;'
@@ -3729,7 +3729,7 @@ if "Players" in idx:
                             target = usage_cols[i] if isinstance(usage_cols, list) else usage_cols[0]
                             with target:
                                 st.markdown(
-                                    f'<div class="profile-card" style="margin-bottom:8px;">'
+                                    f'<div class="profile-card" style="margin-bottom:8px;padding:14px 14px;">'
                                     f'<div style="font-size:0.85rem;color:#c9a14a;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">{sys_name}</div>'
                                     f'{"".join(rows_html)}'
                                     f'</div>',
@@ -3757,92 +3757,85 @@ if "Players" in idx:
                         )
                         st.markdown(f'<div class="profile-stat-grid">{league_tiles}</div>', unsafe_allow_html=True)
 
-                        # ELO history graph (Plotly with hover tooltips).
+                        # ELO history graph (Altair — properly respects axis scales).
                         # First entry is the starting ELO ("Start", 1000) so charts render a
                         # line even after a single submitted game.
                         elo_hist = league_stats.get("elo_history", [])
                         if len(elo_hist) >= 1:
                             try:
-                                # X-axis: 0 = starting rating, 1..N = games played
-                                game_nums = list(range(0, len(elo_hist)))
-                                ratings = [float(r[1]) for r in elo_hist]
-                                hover_labels = [
-                                    "Start" if i == 0 else f"Game {i}"
-                                    for i in range(len(elo_hist))
-                                ]
-                                dates = [r[0] or "—" for r in elo_hist]
+                                import altair as alt
 
-                                # Calculate bounded Y-axis
-                                y_min = min(ratings) - 20.0
-                                y_max = max(ratings) + 20.0
-                                if y_max - y_min < 1.0:
-                                    y_max = y_min + 40.0
+                                # Build dataframe with explicit integer game numbers
+                                df_elo = pd.DataFrame({
+                                    "Game": list(range(0, len(elo_hist))),
+                                    "Label": [
+                                        "Start" if i == 0 else f"Game {i}"
+                                        for i in range(len(elo_hist))
+                                    ],
+                                    "Date": [r[0] or "—" for r in elo_hist],
+                                    "ELO": [round(float(r[1])) for r in elo_hist],
+                                })
 
-                                # Build the figure as a raw dict — most reliable way to
-                                # ensure Plotly honours all our axis constraints
-                                fig_dict = {
-                                    "data": [{
-                                        "type": "scatter",
-                                        "x": game_nums,
-                                        "y": ratings,
-                                        "mode": "lines+markers",
-                                        "line": {"color": "#c9a14a", "width": 2.5},
-                                        "marker": {
-                                            "size": 8,
-                                            "color": "#f4e9c8",
-                                            "line": {"color": "#c9a14a", "width": 1.5},
-                                        },
-                                        "customdata": [
-                                            [hl, d, r] for hl, d, r in zip(hover_labels, dates, ratings)
-                                        ],
-                                        "hovertemplate": (
-                                            "<b>%{customdata[0]}</b><br>"
-                                            "Date: %{customdata[1]}<br>"
-                                            "ELO: %{customdata[2]:.0f}<extra></extra>"
+                                ratings = df_elo["ELO"].tolist()
+                                y_min = min(ratings) - 20
+                                y_max = max(ratings) + 20
+                                if y_max - y_min < 40:
+                                    y_max = y_min + 40
+
+                                # Tick values for X axis: every integer 0..N
+                                x_ticks = list(range(0, len(elo_hist)))
+
+                                line = (
+                                    alt.Chart(df_elo)
+                                    .mark_line(color="#c9a14a", strokeWidth=2.5)
+                                    .encode(
+                                        x=alt.X(
+                                            "Game:Q",
+                                            scale=alt.Scale(domain=[-0.2, len(elo_hist) - 0.8]),
+                                            axis=alt.Axis(
+                                                title="Game",
+                                                values=x_ticks,
+                                                format="d",
+                                                grid=True,
+                                                gridColor="rgba(180,150,90,0.18)",
+                                                labelColor="#e8e4d8",
+                                                titleColor="#e8e4d8",
+                                            ),
                                         ),
-                                        "name": "ELO",
-                                    }],
-                                    "layout": {
-                                        "height": 240,
-                                        "margin": {"l": 50, "r": 20, "t": 10, "b": 40},
-                                        "paper_bgcolor": "rgba(0,0,0,0)",
-                                        "plot_bgcolor": "rgba(0,0,0,0.25)",
-                                        "font": {"color": "#e8e4d8"},
-                                        "hoverlabel": {
-                                            "bgcolor": "#1e1e28",
-                                            "bordercolor": "#c9a14a",
-                                            "font": {"color": "#f4e9c8"},
-                                        },
-                                        "xaxis": {
-                                            "title": {"text": "Game"},
-                                            "gridcolor": "rgba(180,150,90,0.18)",
-                                            "zerolinecolor": "rgba(180,150,90,0.18)",
-                                            "fixedrange": True,
-                                            "tick0": 0,
-                                            "dtick": 1,
-                                            "range": [-0.2, len(elo_hist) - 0.8],
-                                            "autorange": False,
-                                        },
-                                        "yaxis": {
-                                            "title": {"text": "ELO"},
-                                            "gridcolor": "rgba(180,150,90,0.18)",
-                                            "zerolinecolor": "rgba(180,150,90,0.18)",
-                                            "range": [y_min, y_max],
-                                            "autorange": False,
-                                            "fixedrange": True,
-                                        },
-                                        "showlegend": False,
-                                    },
-                                }
+                                        y=alt.Y(
+                                            "ELO:Q",
+                                            scale=alt.Scale(domain=[y_min, y_max], nice=False, zero=False),
+                                            axis=alt.Axis(
+                                                title="ELO",
+                                                grid=True,
+                                                gridColor="rgba(180,150,90,0.18)",
+                                                labelColor="#e8e4d8",
+                                                titleColor="#e8e4d8",
+                                            ),
+                                        ),
+                                    )
+                                )
+                                points = (
+                                    alt.Chart(df_elo)
+                                    .mark_circle(size=80, color="#f4e9c8", stroke="#c9a14a", strokeWidth=1.5)
+                                    .encode(
+                                        x=alt.X("Game:Q"),
+                                        y=alt.Y("ELO:Q"),
+                                        tooltip=[
+                                            alt.Tooltip("Label:N", title="Point"),
+                                            alt.Tooltip("Date:N", title="Date"),
+                                            alt.Tooltip("ELO:Q", title="ELO"),
+                                        ],
+                                    )
+                                )
+                                chart = (
+                                    (line + points)
+                                    .properties(height=240, background="rgba(0,0,0,0.25)")
+                                    .configure_view(stroke=None)
+                                )
 
                                 st.markdown('<div class="profile-section-title" style="margin-top:14px;">ELO History</div>', unsafe_allow_html=True)
-                                st.plotly_chart(
-                                    fig_dict,
-                                    width='stretch',
-                                    config={"displayModeBar": False, "scrollZoom": False},
-                                    theme=None,
-                                    key=f"elo_chart_{picked_id}",
-                                )
+                                st.altair_chart(chart, width='stretch')
                             except Exception:
                                 # Fallback to st.line_chart if Plotly fails for any reason
                                 df_elo = pd.DataFrame({

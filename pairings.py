@@ -805,7 +805,8 @@ def _player_league_stats(player_id: int) -> Optional[dict]:
         return None
 
     wins = draws = losses = 0
-    elo_history: List[Tuple[str, float]] = []
+    # Start with the base ELO so charts can render a line even after a single game
+    elo_history: List[Tuple[str, float]] = [("Start", LEAGUE_BASE_RATING)]
 
     for lr in results:
         is_p1 = (lr.player_1_id == player_id)
@@ -3750,13 +3751,21 @@ if "Players" in idx:
                         )
                         st.markdown(f'<div class="profile-stat-grid">{league_tiles}</div>', unsafe_allow_html=True)
 
-                        # ELO history graph (Plotly with hover tooltips)
+                        # ELO history graph (Plotly with hover tooltips).
+                        # First entry is the starting ELO ("Start", 1000) so charts render a
+                        # line even after a single submitted game.
                         elo_hist = league_stats.get("elo_history", [])
                         if len(elo_hist) >= 1:
                             try:
                                 import plotly.graph_objects as go
-                                game_nums = list(range(1, len(elo_hist) + 1))
+                                # X-axis: 0 = starting rating, 1..N = games played
+                                game_nums = list(range(0, len(elo_hist)))
                                 ratings = [r[1] for r in elo_hist]
+                                # Hover labels: "Start" for the seed point, "Game N" for the rest
+                                hover_labels = [
+                                    "Start" if i == 0 else f"Game {i}"
+                                    for i in range(len(elo_hist))
+                                ]
                                 dates = [r[0] or "—" for r in elo_hist]
 
                                 fig = go.Figure()
@@ -3767,11 +3776,11 @@ if "Players" in idx:
                                     line=dict(color="#c9a14a", width=2.5),
                                     marker=dict(size=7, color="#f4e9c8",
                                                 line=dict(color="#c9a14a", width=1.5)),
-                                    customdata=list(zip(dates, ratings)),
+                                    customdata=list(zip(hover_labels, dates, ratings)),
                                     hovertemplate=(
-                                        "<b>Game %{x}</b><br>"
-                                        "Date: %{customdata[0]}<br>"
-                                        "ELO: %{customdata[1]:.0f}<extra></extra>"
+                                        "<b>%{customdata[0]}</b><br>"
+                                        "Date: %{customdata[1]}<br>"
+                                        "ELO: %{customdata[2]:.0f}<extra></extra>"
                                     ),
                                     name="ELO",
                                 ))
@@ -3799,7 +3808,7 @@ if "Players" in idx:
                             except Exception:
                                 # Fallback to st.line_chart if Plotly fails for any reason
                                 df_elo = pd.DataFrame({
-                                    "Game": list(range(1, len(elo_hist) + 1)),
+                                    "Game": list(range(0, len(elo_hist))),
                                     "ELO": [r[1] for r in elo_hist],
                                 }).set_index("Game")
                                 st.line_chart(df_elo, height=220)

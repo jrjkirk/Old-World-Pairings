@@ -3660,18 +3660,22 @@ if "Players" in idx:
                         '.profile-game-week{color:#b8a878;min-width:90px;font-variant-numeric:tabular-nums;}'
                         '.profile-game-vs{color:#c9a14a;font-weight:700;}'
                         '.profile-game-meta{color:#d4c8a0;margin-left:auto;font-size:0.85rem;}'
-                        '.profile-faction-row{display:flex;align-items:center;gap:10px;padding:6px 0;'
-                        'font-size:0.92rem;min-width:0;overflow:hidden;}'
-                        '.profile-faction-row img{width:24px;height:24px;object-fit:contain;flex:0 0 auto;}'
-                        '.profile-faction-name{color:#f4e9c8;flex:1 1 auto;min-width:0;'
+                        '.profile-faction-row{display:grid;'
+                        'grid-template-columns:24px minmax(0, 1fr) 200px 36px;'
+                        'align-items:center;gap:10px;padding:6px 0;font-size:0.92rem;}'
+                        '.profile-faction-row img{width:24px;height:24px;object-fit:contain;}'
+                        '.profile-faction-name{color:#f4e9c8;'
                         'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}'
-                        '.profile-faction-bar{display:inline-block;height:8px;background:rgba(0,0,0,0.4);'
-                        'border-radius:4px;overflow:hidden;flex:0 1 200px;min-width:40px;'
+                        '.profile-faction-bar{height:8px;background:rgba(0,0,0,0.4);'
+                        'border-radius:4px;overflow:hidden;'
                         'border:1px solid rgba(180,150,90,0.18);}'
                         '.profile-faction-bar-fill{display:block;height:100%;'
                         'background:linear-gradient(90deg,#c9a14a,#d97a2a);}'
-                        '.profile-faction-count{color:#d4c8a0;min-width:30px;text-align:right;'
-                        'font-variant-numeric:tabular-nums;flex:0 0 auto;}'
+                        '.profile-faction-count{color:#d4c8a0;text-align:right;'
+                        'font-variant-numeric:tabular-nums;}'
+                        '@media (max-width:600px){.profile-faction-row{'
+                        'grid-template-columns:22px minmax(0, 1fr) 100px 30px;gap:8px;}'
+                        '.profile-faction-row img{width:22px;height:22px;}}'
                         '</style>',
                         unsafe_allow_html=True,
                     )
@@ -3802,12 +3806,16 @@ if "Players" in idx:
                                         gridcolor="rgba(180,150,90,0.18)",
                                         zerolinecolor="rgba(180,150,90,0.18)",
                                         fixedrange=True,
+                                        tickmode="array",
+                                        tickvals=game_nums,
+                                        ticktext=[str(n) for n in game_nums],
                                     ),
                                     yaxis=dict(
                                         title="ELO",
                                         gridcolor="rgba(180,150,90,0.18)",
                                         zerolinecolor="rgba(180,150,90,0.18)",
                                         range=[y_min, y_max],
+                                        autorange=False,
                                         fixedrange=True,
                                     ),
                                     hoverlabel=dict(bgcolor="#1e1e28", bordercolor="#c9a14a",

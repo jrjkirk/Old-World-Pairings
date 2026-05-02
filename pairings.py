@@ -3197,6 +3197,28 @@ with T[idx["Old World League"]]:
     st.markdown("### League Rankings")
     league_rows = league_rankings_rows()
     if league_rows:
+        # ---- Quick jump to player profile (buttons) ----
+        with Session(engine) as _s_pmap_l:
+            _all_players_l = _s_pmap_l.exec(select(Player)).all()
+        _name_to_player_id_l = {p.name: p.id for p in _all_players_l if p.id is not None}
+
+        with st.expander("Jump to Player Profile", expanded=False):
+            visible_names = [r.get("Name", "") for r in league_rows if r.get("Name")]
+            if visible_names:
+                # Render as a wrapping grid of small buttons, ~6 per row
+                per_row = 6
+                for chunk_start in range(0, len(visible_names), per_row):
+                    chunk = visible_names[chunk_start:chunk_start + per_row]
+                    cols = st.columns(per_row)
+                    for i, name in enumerate(chunk):
+                        with cols[i]:
+                            pid = _name_to_player_id_l.get(name)
+                            if pid is not None:
+                                if st.button(name, key=f"jump_to_{pid}_{chunk_start}", width='stretch'):
+                                    st.query_params["player_id"] = str(pid)
+                                    st.session_state["__jump_to_players_tab"] = True
+                                    st.rerun()
+
         # Inject league-specific CSS once
         st.markdown("""
 <style>
@@ -3298,11 +3320,6 @@ with T[idx["Old World League"]]:
 """, unsafe_allow_html=True)
 
         medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-        # Build a name -> player_id map so we can link names to profiles
-        with Session(engine) as _s_pmap:
-            _all_players = _s_pmap.exec(select(Player)).all()
-        _name_to_player_id = {p.name: p.id for p in _all_players if p.id is not None}
-
         rows_html = []
         for r in league_rows:
             rank = r.get("Rank")
@@ -3320,19 +3337,13 @@ with T[idx["Old World League"]]:
                 f'<span class="league-faction-name">{faction_name}</span></div>'
             )
 
-            # Make name a profile link if we can resolve a player id for it
             player_name = r.get("Name", "")
-            player_id = _name_to_player_id.get(player_name)
-            if player_id is not None:
-                name_html = f'<a class="league-name-link" href="?player_id={player_id}" target="_self">{player_name}</a>'
-            else:
-                name_html = player_name
 
             rows_html.append(
                 f'<tr class="{row_class}">'
                 f'<td class="league-rank">{rank_cell}</td>'
                 f'<td class="league-elo">{r.get("ELO", "")}</td>'
-                f'<td class="league-name">{name_html}</td>'
+                f'<td class="league-name">{player_name}</td>'
                 f'<td>{faction_cell}</td>'
                 f'<td class="league-wdl">{r.get("W/D/L", "0/0/0")}</td>'
                 f'<td class="league-games">{r.get("Games Played", 0)}</td>'

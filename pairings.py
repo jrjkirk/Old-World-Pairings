@@ -1193,12 +1193,11 @@ _MATCHUP_CSS = """
 .stat-tile {
     flex: 1 1 0;
     min-width: 0;
-    background: linear-gradient(135deg, rgba(30,30,40,0.92) 0%, rgba(20,20,30,0.95) 100%);
-    border: 1px solid rgba(180,150,90,0.35);
+    background: rgba(0,0,0,0.25);
+    border: 1px solid rgba(180,150,90,0.25);
     border-radius: 10px;
     padding: 10px 8px;
     text-align: center;
-    box-shadow: 0 3px 10px rgba(0,0,0,0.3);
 }
 .stat-label {
     font-size: 0.7rem;
@@ -3652,10 +3651,13 @@ if "Players" in idx:
                         'text-transform:uppercase;letter-spacing:0.6px;margin-top:8px;margin-bottom:8px;}'
                         '.profile-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));'
                         'gap:10px;}'
-                        '.profile-stat{background:rgba(0,0,0,0.25);border:1px solid rgba(180,150,90,0.25);'
-                        'border-radius:10px;padding:10px;text-align:center;'
+                        '.profile-stat,.profile-flat-box{background:rgba(0,0,0,0.25);'
+                        'border:1px solid rgba(180,150,90,0.25);'
+                        'border-radius:10px;}'
+                        '.profile-stat{padding:10px;text-align:center;'
                         'display:flex;flex-direction:column;justify-content:space-between;'
                         'min-height:90px;}'
+                        '.profile-flat-box{padding:14px 14px;margin-bottom:10px;color:#e8e4d8;}'
                         '.profile-stat-label{font-size:0.7rem;color:#b8a878;text-transform:uppercase;'
                         'letter-spacing:0.5px;line-height:1.2;}'
                         '.profile-stat-value{font-size:1.4rem;font-weight:700;color:#f4e9c8;line-height:1.1;'
@@ -3697,7 +3699,22 @@ if "Players" in idx:
                     # ---- Achievements: tap/click each badge to see description ----
                     if achievements:
                         st.markdown(
-                            '<div class="profile-section-title" style="margin-top:0;margin-bottom:6px;">Achievements</div>',
+                            '<div class="profile-section-title" style="margin-top:0;margin-bottom:6px;">Achievements</div>'
+                            # Restyle popover trigger buttons to match the flat-box look used elsewhere
+                            '<style>'
+                            'div[data-testid="stPopover"] button{'
+                            'background:rgba(0,0,0,0.25) !important;'
+                            'border:1px solid rgba(180,150,90,0.25) !important;'
+                            'border-radius:10px !important;'
+                            'color:#f4e9c8 !important;'
+                            'box-shadow:none !important;'
+                            'font-size:0.85rem !important;'
+                            '}'
+                            'div[data-testid="stPopover"] button:hover{'
+                            'border-color:rgba(201,161,74,0.55) !important;'
+                            'background:rgba(201,161,74,0.10) !important;'
+                            '}'
+                            '</style>',
                             unsafe_allow_html=True,
                         )
                         # Render badges in a wrapping row using narrow Streamlit columns.
@@ -3754,7 +3771,7 @@ if "Players" in idx:
                             target = usage_cols[i] if isinstance(usage_cols, list) else usage_cols[0]
                             with target:
                                 st.markdown(
-                                    f'<div class="profile-card" style="margin-bottom:8px;padding:14px 12px;overflow:hidden;">'
+                                    f'<div class="profile-flat-box" style="padding:14px 12px;overflow:hidden;">'
                                     f'<div style="font-size:0.85rem;color:#c9a14a;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">{sys_name}</div>'
                                     f'{"".join(rows_html)}'
                                     f'</div>',
@@ -3916,7 +3933,7 @@ if "Players" in idx:
                                     f'<strong>{opp_name}</strong> (<em>{opp_faction}</em>)</span>'
                                     f'</div>'
                                 )
-                            st.markdown(f'<div class="profile-card">{"".join(rows_html)}</div>', unsafe_allow_html=True)
+                            st.markdown(f'<div class="profile-flat-box">{"".join(rows_html)}</div>', unsafe_allow_html=True)
 
                     # ---- Recent games per system (signups + pairings, last 5 each) ----
                     for sys_name in visible_systems:
@@ -3945,7 +3962,7 @@ if "Players" in idx:
                                 f'<span class="profile-game-meta">{type_disp}</span>'
                                 f'</div>'
                             )
-                        st.markdown(f'<div class="profile-card">{"".join(rows_html)}</div>', unsafe_allow_html=True)
+                        st.markdown(f'<div class="profile-flat-box">{"".join(rows_html)}</div>', unsafe_allow_html=True)
 
 
 # --------------- Admin: Signups ---------------

@@ -856,6 +856,90 @@ def all_active_players() -> List[Tuple[int, str]]:
     return [(p.id, p.name) for p in rows if p.id is not None]
 
 
+def _player_faction_usage_per_system(player_id: int) -> Dict[str, Dict[str, int]]:
+    """Return {system: {faction: count}} from this player's signups across all weeks.
+
+    Uses signup history rather than just league results so it covers TOW, HH and KT.
+    """
+    with Session(engine) as s:
+        sus = s.exec(select(Signup).where(Signup.player_id == player_id)).all()
+    out: Dict[str, Dict[str, int]] = {}
+    for su in sus:
+        if not su.system or not su.faction:
+            continue
+        out.setdefault(su.system, {})
+        out[su.system][su.faction] = out[su.system].get(su.faction, 0) + 1
+    return out
+
+
+def _compute_player_achievements(player_id: int) -> List[str]:
+    """Compute auto-awarded achievement labels for a player based on their stats."""
+    achievements: List[str] = []
+
+    # League-based achievements
+    league = _player_league_stats(player_id)
+    if league:
+        wins = league.get("wins", 0)
+        games = league.get("games", 0)
+
+        if wins >= 1:
+            achievements.append("First Blood")
+        if games >= 10:
+            achievements.append("Veteran")
+        if games >= 25:
+            achievements.append("Champion")
+
+        # Hat-trick: 3+ league wins in a row at any point
+        results = league.get("results", [])
+        max_streak = 0
+        cur_streak = 0
+        for lr in results:
+            is_p1 = (lr.player_1_id == player_id)
+            r = (lr.result or "").strip()
+            won = (r == "Player 1 Victory" and is_p1) or (r == "Player 2 Victory" and not is_p1)
+            if won:
+                cur_streak += 1
+                max_streak = max(max_streak, cur_streak)
+            else:
+                cur_streak = 0
+        if max_streak >= 3:
+            achievements.append("Hat-Trick")
+        if max_streak >= 5:
+            achievements.append("Unstoppable")
+
+        # Loyalist: 5+ league games with same faction
+        faction_counts_league = league.get("faction_counts", {})
+        if faction_counts_league and max(faction_counts_league.values()) >= 5:
+            achievements.append("Loyalist")
+
+    # Cross-system achievements
+    faction_usage = _player_faction_usage_per_system(player_id)
+    distinct_factions = set()
+    total_signups = 0
+    for sys_name, facs in faction_usage.items():
+        distinct_factions.update(facs.keys())
+        total_signups += sum(facs.values())
+
+    if len(distinct_factions) >= 5:
+        achievements.append("Diversifier")
+    if len(distinct_factions) >= 10:
+        achievements.append("Generalist")
+    if total_signups >= 50:
+        achievements.append("Centurion")
+    if total_signups >= 100:
+        achievements.append("Legend")
+    if total_signups <= 4 and total_signups >= 1:
+        achievements.append("Newcomer")
+
+    # Plays multiple systems
+    if len(faction_usage) >= 2:
+        achievements.append("Multi-System")
+    if len(faction_usage) >= 3:
+        achievements.append("Triple Threat")
+
+    return achievements
+
+
 @st.cache_data(ttl=600, show_spinner=False)
 def league_submitted_games_rows() -> List[dict]:
     ensure_league_results_table()
@@ -3197,28 +3281,6 @@ with T[idx["Old World League"]]:
     st.markdown("### League Rankings")
     league_rows = league_rankings_rows()
     if league_rows:
-        # ---- Quick jump to player profile (buttons) ----
-        with Session(engine) as _s_pmap_l:
-            _all_players_l = _s_pmap_l.exec(select(Player)).all()
-        _name_to_player_id_l = {p.name: p.id for p in _all_players_l if p.id is not None}
-
-        with st.expander("Jump to Player Profile", expanded=False):
-            visible_names = [r.get("Name", "") for r in league_rows if r.get("Name")]
-            if visible_names:
-                # Render as a wrapping grid of small buttons, ~6 per row
-                per_row = 6
-                for chunk_start in range(0, len(visible_names), per_row):
-                    chunk = visible_names[chunk_start:chunk_start + per_row]
-                    cols = st.columns(per_row)
-                    for i, name in enumerate(chunk):
-                        with cols[i]:
-                            pid = _name_to_player_id_l.get(name)
-                            if pid is not None:
-                                if st.button(name, key=f"jump_to_{pid}_{chunk_start}", width='stretch'):
-                                    st.query_params["player_id"] = str(pid)
-                                    st.session_state["__jump_to_players_tab"] = True
-                                    st.rerun()
-
         # Inject league-specific CSS once
         st.markdown("""
 <style>
@@ -3268,16 +3330,6 @@ with T[idx["Old World League"]]:
     color: #f4e9c8;
 }
 .league-name { font-weight: 600; color: #f4e9c8; }
-.league-name-link {
-    color: #f4e9c8 !important;
-    text-decoration: none;
-    border-bottom: 1px dotted rgba(201,161,74,0.45);
-    transition: color 0.15s ease, border-color 0.15s ease;
-}
-.league-name-link:hover {
-    color: #c9a14a !important;
-    border-bottom-color: #c9a14a;
-}
 .league-faction-cell {
     display: flex;
     align-items: center;
@@ -3541,12 +3593,22 @@ if "Players" in idx:
                 if not player:
                     st.warning("Player not found.")
                 else:
-                    # ---- Header: name + titles ----
+                    # ---- Header: name + titles + auto-achievements ----
                     titles = _player_titles(player)
+                    achievements = _compute_player_achievements(picked_id)
+
                     titles_html = ""
                     if titles:
                         chips = "".join(f'<span class="profile-title-chip">{t}</span>' for t in titles)
                         titles_html = f'<div class="profile-titles">{chips}</div>'
+
+                    achievements_html = ""
+                    if achievements:
+                        ach_chips = "".join(
+                            f'<span class="profile-achievement-chip">🏅 {a}</span>'
+                            for a in achievements
+                        )
+                        achievements_html = f'<div class="profile-titles" style="margin-top:8px;">{ach_chips}</div>'
 
                     st.markdown(
                         '<style>'
@@ -3558,6 +3620,9 @@ if "Players" in idx:
                         '.profile-title-chip{display:inline-block;background:rgba(201,161,74,0.18);'
                         'border:1px solid rgba(201,161,74,0.45);color:#f4e9c8;padding:3px 10px;'
                         'border-radius:12px;font-size:0.82rem;}'
+                        '.profile-achievement-chip{display:inline-block;background:rgba(110,180,110,0.12);'
+                        'border:1px solid rgba(110,180,110,0.35);color:#d4e8c8;padding:3px 10px;'
+                        'border-radius:12px;font-size:0.78rem;}'
                         '.profile-section-title{font-size:1.05rem;font-weight:600;color:#c9a14a;'
                         'text-transform:uppercase;letter-spacing:0.6px;margin-top:8px;margin-bottom:8px;}'
                         '.profile-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));'
@@ -3574,6 +3639,14 @@ if "Players" in idx:
                         '.profile-game-week{color:#b8a878;min-width:90px;font-variant-numeric:tabular-nums;}'
                         '.profile-game-vs{color:#c9a14a;font-weight:700;}'
                         '.profile-game-meta{color:#d4c8a0;margin-left:auto;font-size:0.85rem;}'
+                        '.profile-faction-row{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:0.92rem;}'
+                        '.profile-faction-row img{width:24px;height:24px;object-fit:contain;flex:0 0 auto;}'
+                        '.profile-faction-name{color:#f4e9c8;flex:1;}'
+                        '.profile-faction-bar{height:6px;background:rgba(0,0,0,0.3);border-radius:3px;overflow:hidden;'
+                        'flex:1;max-width:240px;}'
+                        '.profile-faction-bar-fill{height:100%;background:linear-gradient(90deg,#c9a14a,#d97a2a);}'
+                        '.profile-faction-count{color:#d4c8a0;min-width:34px;text-align:right;'
+                        'font-variant-numeric:tabular-nums;}'
                         '</style>',
                         unsafe_allow_html=True,
                     )
@@ -3582,6 +3655,7 @@ if "Players" in idx:
                         f'<div class="profile-card">'
                         f'<div class="profile-name">{player.name}</div>'
                         f'{titles_html}'
+                        f'{achievements_html}'
                         f'</div>',
                         unsafe_allow_html=True,
                     )
@@ -3600,6 +3674,40 @@ if "Players" in idx:
                         st.markdown(f'<div class="profile-stat-grid">{tiles}</div>', unsafe_allow_html=True)
                     else:
                         st.caption("This player hasn't signed up for any sessions yet.")
+
+                    # ---- Faction Usage breakdown per system ----
+                    faction_usage = _player_faction_usage_per_system(picked_id)
+                    if faction_usage:
+                        st.markdown('<div class="profile-section-title" style="margin-top:14px;">Faction Usage</div>', unsafe_allow_html=True)
+                        usage_cols = st.columns(min(len(faction_usage), 3)) if len(faction_usage) > 1 else [st.container()]
+                        for i, sys_name in enumerate([s for s in SYSTEMS if s in faction_usage]):
+                            facs = faction_usage[sys_name]
+                            sorted_facs = sorted(facs.items(), key=lambda kv: -kv[1])
+                            max_count = max(facs.values()) if facs else 1
+                            rows_html = []
+                            for fac_name, count in sorted_facs:
+                                fac_icon = _faction_icon_data_uri(fac_name)
+                                icon_html = f'<img src="{fac_icon}" alt="{fac_name}"/>' if fac_icon else '<div style="width:24px;height:24px;flex:0 0 auto;"></div>'
+                                pct = int(round(100 * count / max_count))
+                                rows_html.append(
+                                    f'<div class="profile-faction-row">'
+                                    f'{icon_html}'
+                                    f'<span class="profile-faction-name">{fac_name}</span>'
+                                    f'<span class="profile-faction-bar">'
+                                    f'<span class="profile-faction-bar-fill" style="width:{pct}%;"></span>'
+                                    f'</span>'
+                                    f'<span class="profile-faction-count">{count}</span>'
+                                    f'</div>'
+                                )
+                            target = usage_cols[i] if isinstance(usage_cols, list) else usage_cols[0]
+                            with target:
+                                st.markdown(
+                                    f'<div class="profile-card" style="margin-bottom:8px;">'
+                                    f'<div style="font-size:0.85rem;color:#c9a14a;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">{sys_name}</div>'
+                                    f'{"".join(rows_html)}'
+                                    f'</div>',
+                                    unsafe_allow_html=True,
+                                )
 
                     # ---- TOW League stats ----
                     league_stats = _player_league_stats(picked_id)
@@ -3622,18 +3730,59 @@ if "Players" in idx:
                         )
                         st.markdown(f'<div class="profile-stat-grid">{league_tiles}</div>', unsafe_allow_html=True)
 
-                        # ELO history graph
+                        # ELO history graph (Plotly with hover tooltips)
                         elo_hist = league_stats.get("elo_history", [])
                         if len(elo_hist) >= 2:
                             try:
+                                import plotly.graph_objects as go
+                                game_nums = list(range(1, len(elo_hist) + 1))
+                                ratings = [r[1] for r in elo_hist]
+                                dates = [r[0] or "—" for r in elo_hist]
+
+                                fig = go.Figure()
+                                fig.add_trace(go.Scatter(
+                                    x=game_nums,
+                                    y=ratings,
+                                    mode="lines+markers",
+                                    line=dict(color="#c9a14a", width=2.5),
+                                    marker=dict(size=7, color="#f4e9c8",
+                                                line=dict(color="#c9a14a", width=1.5)),
+                                    customdata=list(zip(dates, ratings)),
+                                    hovertemplate=(
+                                        "<b>Game %{x}</b><br>"
+                                        "Date: %{customdata[0]}<br>"
+                                        "ELO: %{customdata[1]:.0f}<extra></extra>"
+                                    ),
+                                    name="ELO",
+                                ))
+                                fig.update_layout(
+                                    height=240,
+                                    margin=dict(l=10, r=10, t=10, b=10),
+                                    paper_bgcolor="rgba(0,0,0,0)",
+                                    plot_bgcolor="rgba(0,0,0,0.25)",
+                                    font=dict(color="#e8e4d8"),
+                                    xaxis=dict(
+                                        title="Game",
+                                        gridcolor="rgba(180,150,90,0.18)",
+                                        zerolinecolor="rgba(180,150,90,0.18)",
+                                    ),
+                                    yaxis=dict(
+                                        title="ELO",
+                                        gridcolor="rgba(180,150,90,0.18)",
+                                        zerolinecolor="rgba(180,150,90,0.18)",
+                                    ),
+                                    hoverlabel=dict(bgcolor="#1e1e28", bordercolor="#c9a14a",
+                                                    font=dict(color="#f4e9c8")),
+                                )
+                                st.markdown('<div class="profile-section-title" style="margin-top:14px;">ELO History</div>', unsafe_allow_html=True)
+                                st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
+                            except Exception:
+                                # Fallback to st.line_chart if Plotly fails for any reason
                                 df_elo = pd.DataFrame({
                                     "Game": list(range(1, len(elo_hist) + 1)),
                                     "ELO": [r[1] for r in elo_hist],
                                 }).set_index("Game")
-                                st.markdown('<div class="profile-section-title" style="margin-top:14px;">ELO History</div>', unsafe_allow_html=True)
                                 st.line_chart(df_elo, height=220)
-                            except Exception:
-                                pass
 
                         # Recent league results (last 5)
                         recent_results = league_stats.get("results", [])[-5:][::-1]

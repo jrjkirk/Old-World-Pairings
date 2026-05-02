@@ -3566,10 +3566,12 @@ if "Players" in idx:
 
         # Load players list
         with Session(engine) as _ps:
-            all_players_rows = _ps.exec(select(Player).order_by(Player.name)).all()
+            all_players_rows = _ps.exec(
+                select(Player).where(Player.active == True).order_by(Player.name)
+            ).all()
 
         if not all_players_rows:
-            st.info("No player profiles yet. Players are created automatically the first time they sign up.")
+            st.info("No active player profiles to display. Players appear here once they've signed up.")
         else:
             # Pre-select via ?player_id= query param if present (e.g. clicked from league rankings)
             qp = st.query_params
@@ -3658,16 +3660,18 @@ if "Players" in idx:
                         '.profile-game-week{color:#b8a878;min-width:90px;font-variant-numeric:tabular-nums;}'
                         '.profile-game-vs{color:#c9a14a;font-weight:700;}'
                         '.profile-game-meta{color:#d4c8a0;margin-left:auto;font-size:0.85rem;}'
-                        '.profile-faction-row{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:0.92rem;}'
+                        '.profile-faction-row{display:flex;align-items:center;gap:10px;padding:6px 0;'
+                        'font-size:0.92rem;min-width:0;overflow:hidden;}'
                         '.profile-faction-row img{width:24px;height:24px;object-fit:contain;flex:0 0 auto;}'
-                        '.profile-faction-name{color:#f4e9c8;flex:1;min-width:120px;}'
+                        '.profile-faction-name{color:#f4e9c8;flex:1 1 auto;min-width:0;'
+                        'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}'
                         '.profile-faction-bar{display:inline-block;height:8px;background:rgba(0,0,0,0.4);'
-                        'border-radius:4px;overflow:hidden;flex:1;max-width:240px;min-width:80px;'
+                        'border-radius:4px;overflow:hidden;flex:0 1 200px;min-width:40px;'
                         'border:1px solid rgba(180,150,90,0.18);}'
                         '.profile-faction-bar-fill{display:block;height:100%;'
                         'background:linear-gradient(90deg,#c9a14a,#d97a2a);}'
-                        '.profile-faction-count{color:#d4c8a0;min-width:34px;text-align:right;'
-                        'font-variant-numeric:tabular-nums;}'
+                        '.profile-faction-count{color:#d4c8a0;min-width:30px;text-align:right;'
+                        'font-variant-numeric:tabular-nums;flex:0 0 auto;}'
                         '</style>',
                         unsafe_allow_html=True,
                     )
@@ -3784,6 +3788,9 @@ if "Players" in idx:
                                     ),
                                     name="ELO",
                                 ))
+                                # Calculate bounded Y-axis: lowest ELO - 20, highest ELO + 20
+                                y_min = min(ratings) - 20
+                                y_max = max(ratings) + 20
                                 fig.update_layout(
                                     height=240,
                                     margin=dict(l=10, r=10, t=10, b=10),
@@ -3794,17 +3801,20 @@ if "Players" in idx:
                                         title="Game",
                                         gridcolor="rgba(180,150,90,0.18)",
                                         zerolinecolor="rgba(180,150,90,0.18)",
+                                        fixedrange=True,
                                     ),
                                     yaxis=dict(
                                         title="ELO",
                                         gridcolor="rgba(180,150,90,0.18)",
                                         zerolinecolor="rgba(180,150,90,0.18)",
+                                        range=[y_min, y_max],
+                                        fixedrange=True,
                                     ),
                                     hoverlabel=dict(bgcolor="#1e1e28", bordercolor="#c9a14a",
                                                     font=dict(color="#f4e9c8")),
                                 )
                                 st.markdown('<div class="profile-section-title" style="margin-top:14px;">ELO History</div>', unsafe_allow_html=True)
-                                st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
+                                st.plotly_chart(fig, width='stretch', config={"displayModeBar": False, "scrollZoom": False})
                             except Exception:
                                 # Fallback to st.line_chart if Plotly fails for any reason
                                 df_elo = pd.DataFrame({
@@ -4420,7 +4430,11 @@ if "Players Admin" in idx:
                             help="Each line becomes a title chip on the player's public profile (e.g. 'Champion of the Empire 2026').",
                             height=120,
                         )
-                        new_active = st.checkbox("Active (show in signup lists)", value=bool(pl.active))
+                        new_active = st.checkbox(
+                            "Show this player publicly",
+                            value=bool(pl.active),
+                            help="Untick to hide this player from the public Players tab and signup dropdowns.",
+                        )
                         new_notes = st.text_area(
                             "Admin Notes (Private — Not Shown Publicly)",
                             value=pl.admin_notes or "",
